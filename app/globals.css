@@ -29,6 +29,20 @@ input[type="file"]:focus-visible {
   outline: none;
 }
 
+.passage-highlight {
+  animation: passage-highlight 2s ease;
+}
+
+@keyframes passage-highlight {
+  0%,
+  30% {
+    background-color: #e5f3ee;
+  }
+  100% {
+    background-color: #fffdf9;
+  }
+}
+
 .sr-only {
   position: absolute;
   width: 1px;

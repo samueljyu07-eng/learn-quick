@@ -2,7 +2,10 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
+import Link from "next/link";
+
 import { ProgressBar } from "@/components/progress-bar";
+import { SiteHeader } from "@/components/site-header";
 import { useSession } from "@/components/session-provider";
 import {
   MAX_MATERIAL_CHARS,
@@ -186,9 +189,9 @@ export function StepOne() {
 
   return (
     <div>
+      <SiteHeader />
       <header className="mb-8">
-        <p className="text-sm font-semibold tracking-wide text-accent">Learn Quick</p>
-        <p className="mt-3 text-sm font-semibold text-muted">Step 1 of 5</p>
+        <p className="text-sm font-semibold text-muted">Step 1 of 5</p>
         <h1 className="mt-1 font-serif text-3xl tracking-tight text-ink sm:text-4xl">
           What should this material help you do?
         </h1>
@@ -197,7 +200,7 @@ export function StepOne() {
         </p>
       </header>
 
-      <ProgressBar activeStep={1} completedThrough={showSaved ? 1 : 0} />
+      <ProgressBar activeStep={1} completedThrough={showSaved ? 1 : 0} stepTwoEnabled={Boolean(session)} />
 
       {!hydrated ? (
         <p className="text-muted">Loading your saved step…</p>
@@ -583,10 +586,13 @@ function SavedStep({
       </dl>
 
       <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+        <Link href="/definitions" className="rounded-xl bg-accent px-5 py-3 text-center font-semibold text-white">
+          Continue to definitions
+        </Link>
         <button
           type="button"
           onClick={onEdit}
-          className="rounded-xl bg-accent px-5 py-3 font-semibold text-white"
+          className="rounded-xl border border-line bg-card px-5 py-3 font-semibold text-ink"
         >
           Edit this step
         </button>

@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { Literata, Source_Sans_3 } from "next/font/google";
 
+import { LearningLoader } from "@/components/learning-loader";
 import { SessionProvider } from "@/components/session-provider";
+import { StudyTimer } from "@/components/study-timer";
 import "./globals.css";
 
 const sourceSans = Source_Sans_3({
@@ -25,7 +27,11 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${sourceSans.variable} ${literata.variable} h-full antialiased`}>
       <body className="min-h-full bg-paper font-sans text-ink">
-        <SessionProvider>{children}</SessionProvider>
+        <SessionProvider>
+          <LearningLoader />
+          <StudyTimer />
+          {children}
+        </SessionProvider>
       </body>
     </html>
   );

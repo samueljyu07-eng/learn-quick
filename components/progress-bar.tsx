@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 const STEPS = [
   { id: 1, label: "Objective" },
   { id: 2, label: "Definitions" },
@@ -9,9 +11,11 @@ const STEPS = [
 export function ProgressBar({
   activeStep,
   completedThrough,
+  stepTwoEnabled = false,
 }: {
   activeStep: number;
   completedThrough: number;
+  stepTwoEnabled?: boolean;
 }) {
   return (
     <nav aria-label="Progress" className="relative mb-8">
@@ -20,17 +24,21 @@ export function ProgressBar({
         {STEPS.map((step) => {
           const complete = step.id <= completedThrough;
           const current = step.id === activeStep;
-          return (
-            <li
-              key={step.id}
-              className="relative flex flex-col items-center text-center"
-              aria-current={current ? "step" : undefined}
-            >
+          const href =
+            step.id === 1
+              ? "/"
+              : step.id === 2 && stepTwoEnabled
+                ? "/definitions"
+                : step.id === 3 && stepTwoEnabled
+                  ? "/explain"
+                  : step.id === 4 && stepTwoEnabled
+                    ? "/summary"
+                    : null;
+          const body = (
+            <>
               <span
                 className={`relative z-10 flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold ${
-                  complete || current
-                    ? "bg-accent text-white"
-                    : "border border-line bg-card text-muted"
+                  complete || current ? "bg-accent text-white" : "border border-line bg-card text-muted"
                 }`}
               >
                 {complete ? <CheckIcon /> : step.id}
@@ -43,6 +51,17 @@ export function ProgressBar({
               >
                 {step.label}
               </span>
+            </>
+          );
+          return (
+            <li key={step.id} className="relative flex flex-col items-center text-center" aria-current={current ? "step" : undefined}>
+              {href ? (
+                <Link href={href} className="flex flex-col items-center text-center no-underline">
+                  {body}
+                </Link>
+              ) : (
+                body
+              )}
             </li>
           );
         })}
