@@ -1,17 +1,47 @@
 @import "tailwindcss";
 
+:root {
+  --lq-paper: #f3efe6;
+  --lq-ink: #1e1a16;
+  --lq-muted: #655d53;
+  --lq-line: #e3d9cb;
+  --lq-card: #fffdf9;
+  --lq-accent: #146b56;
+  --lq-accent-soft: #e5f3ee;
+  --lq-warn: #8a4b08;
+  --lq-warn-bg: #fff3e0;
+  --lq-danger: #8d2b2b;
+  --lq-danger-bg: #fdeeee;
+}
+
+html.hardcore {
+  /* Native checkboxes and radios follow the red accent. */
+  color-scheme: dark;
+  --lq-paper: #070707;
+  --lq-ink: #f2f2f2;
+  --lq-muted: #9a9a9a;
+  --lq-line: #3a3a3a;
+  --lq-card: #161616;
+  --lq-accent: #ff2a2a;
+  --lq-accent-soft: #2c1212;
+  --lq-warn: #ff5c5c;
+  --lq-warn-bg: #241010;
+  --lq-danger: #ff4d4d;
+  --lq-danger-bg: #2a1010;
+}
+
 @theme inline {
-  --color-paper: #f3efe6;
-  --color-ink: #1e1a16;
-  --color-muted: #655d53;
-  --color-line: #e3d9cb;
-  --color-card: #fffdf9;
-  --color-accent: #146b56;
-  --color-accent-soft: #e5f3ee;
-  --color-warn: #8a4b08;
-  --color-warn-bg: #fff3e0;
-  --color-danger: #8d2b2b;
-  --color-danger-bg: #fdeeee;
+  --color-paper: var(--lq-paper);
+  --color-ink: var(--lq-ink);
+  --color-muted: var(--lq-muted);
+  --color-line: var(--lq-line);
+  --color-card: var(--lq-card);
+  --color-accent: var(--lq-accent);
+  --color-accent-soft: var(--lq-accent-soft);
+  --color-warn: var(--lq-warn);
+  --color-warn-bg: var(--lq-warn-bg);
+  --color-danger: var(--lq-danger);
+  --color-danger-bg: var(--lq-danger-bg);
   --font-sans: var(--font-source-sans), ui-sans-serif, system-ui, sans-serif;
   --font-serif: var(--font-literata), Georgia, "Times New Roman", serif;
 }
@@ -21,12 +51,93 @@ body {
 }
 
 :focus-visible {
-  outline: 2px solid #146b56;
+  outline: 2px solid var(--lq-accent);
   outline-offset: 2px;
 }
 
 input[type="file"]:focus-visible {
   outline: none;
+}
+
+html.hardcore input[type="checkbox"],
+html.hardcore input[type="radio"] {
+  accent-color: var(--lq-accent);
+}
+
+.hardcore-scrim {
+  background-color: color-mix(in srgb, var(--lq-ink) 40%, transparent);
+}
+
+html.hardcore .hardcore-scrim {
+  background-color: rgb(0 0 0 / 0.72);
+}
+
+.loading-progress-bar {
+  width: 35%;
+  animation: loading-progress 1.4s ease-in-out infinite;
+}
+
+@keyframes loading-progress {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading-progress-bar {
+    width: 55%;
+    animation: none;
+    transform: none;
+  }
+}
+
+.bomb-clock {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 0.55rem;
+  padding: 0.45rem 0.35rem 0.4rem;
+  border-radius: 0.55rem;
+  background: #050505;
+  border: 1px solid #2a2a2a;
+  box-shadow:
+    inset 0 0 0 1px #141414,
+    inset 0 0 18px rgba(255, 24, 24, 0.28);
+}
+
+.bomb-digits {
+  font-family: var(--font-led), ui-monospace, monospace;
+  font-size: 2.15rem;
+  line-height: 1;
+  letter-spacing: 0.06em;
+  color: #ff1f1f;
+  text-shadow:
+    0 0 4px rgba(255, 40, 40, 0.95),
+    0 0 14px rgba(255, 0, 0, 0.7);
+}
+
+.bomb-digits.bomb-word {
+  font-size: 1.55rem;
+  letter-spacing: 0.14em;
+}
+
+.bomb-colon {
+  animation: bomb-blink 1s steps(2, end) infinite;
+}
+
+@keyframes bomb-blink {
+  to {
+    opacity: 0.15;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bomb-colon {
+    animation: none;
+  }
 }
 
 .passage-highlight {
@@ -36,10 +147,10 @@ input[type="file"]:focus-visible {
 @keyframes passage-highlight {
   0%,
   30% {
-    background-color: #e5f3ee;
+    background-color: var(--lq-accent-soft);
   }
   100% {
-    background-color: #fffdf9;
+    background-color: var(--lq-card);
   }
 }
 

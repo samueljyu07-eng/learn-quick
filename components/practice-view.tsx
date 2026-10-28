@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore } from "react";
 
 import { CodePad } from "@/components/code-pad";
+import { LoadingProgress } from "@/components/loading-progress";
 import { ProgressBar } from "@/components/progress-bar";
 import { useSession } from "@/components/session-provider";
 import { SiteHeader } from "@/components/site-header";
@@ -15,6 +17,8 @@ import { useLearning } from "@/lib/learning-store";
 import { problemModule } from "@/lib/problems/registry";
 import { parseProblemSet } from "@/lib/problems/parse";
 import type { Problem, ProblemGrade, ProblemSet } from "@/lib/problems/types";
+import { saveSessionResult } from "@/lib/session-result";
+import { stopTimer } from "@/lib/timer-store";
 
 const CACHE_KEY = "learn-quick-problems";
 const problemListeners = new Set<() => void>();
@@ -167,15 +171,14 @@ export function PracticeView() {
           </button>
         </section>
       ) : loading || !set ? (
-        <p className="text-muted" aria-live="polite">
-          Writing practice problems…
-        </p>
+        <LoadingProgress label="Writing practice problems…" />
       ) : (
         <ProblemList
           set={set}
           summary={summary}
           outcome={outcome ?? "understand"}
           hardcoreText={session.hardcore ? session.material.text : ""}
+          savedAt={session.savedAt}
         />
       )}
     </div>
@@ -212,113 +215,95 @@ function ProblemList({
   summary,
   outcome,
   hardcoreText,
+  savedAt,
 }: {
   set: ProblemSet;
   summary: string;
   outcome: LearningOutcome;
   hardcoreText: string;
+  savedAt: string;
 }) {
+  const router = useRouter();
   const [answers, setAnswers] = useState<Record<string, string>>(() =>
     Object.fromEntries(set.problems.map((problem) => [problem.id, problem.starterCode])),
   );
   const [runs, setRuns] = useState<Record<string, string>>({});
-  const [grades, setGrades] = useState<Record<string, ProblemGrade>>({});
-  const [pendingId, setPendingId] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const [gradeError, setGradeError] = useState("");
   const clock = useHardcoreClock();
   const locked = Boolean(hardcoreText) && (clock.snapshot?.locked || clock.snapshot?.status === "failed");
-  const scored = Object.values(grades);
-  const average = scored.length ? Math.round(scored.reduce((sum, grade) => sum + grade.score, 0) / scored.length) : null;
+
+  async function submitAll() {
+    if (locked) {
+      setGradeError("This material is locked.");
+      return;
+    }
+    setSubmitting(true);
+    setGradeError("");
+    try {
+      const graded: { prompt: string; score: number; feedback: string }[] = [];
+      for (const problem of set.problems) {
+        const grade = await scoreProblem(problem, {
+          answer: (answers[problem.id] ?? "").trim(),
+          summary,
+          runOutput: runs[problem.id] ?? "",
+          hardcoreText,
+        });
+        graded.push({ prompt: problem.prompt, score: grade.score, feedback: grade.feedback });
+      }
+      let hardcore: "off" | "passed" | "failed" = "off";
+      if (hardcoreText) {
+        hardcore = await finishHardcore(hardcoreText);
+      }
+      const average = graded.length
+        ? Math.round(graded.reduce((sum, item) => sum + item.score, 0) / graded.length)
+        : 0;
+      saveSessionResult({
+        savedAt,
+        average,
+        passed: average >= STUDY.passingScore,
+        hardcore,
+        problems: graded,
+      });
+      stopTimer();
+      router.push("/results");
+    } catch (caught) {
+      setGradeError(caught instanceof Error ? caught.message : "Claude couldn't score those answers. Try again.");
+      setSubmitting(false);
+    }
+  }
 
   return (
     <div className="flex flex-col gap-6">
       <p className="text-sm font-semibold text-accent">{problemModule(outcome).title}</p>
-      {average !== null && !hardcoreText ? (
-        <p className="text-sm text-muted">
-          Average so far: {average}. {average >= STUDY.passingScore ? "That passes." : `${STUDY.passingScore} passes.`}
-        </p>
-      ) : null}
       {set.problems.map((problem, index) => (
         <ProblemCard
           key={problem.id}
           index={index}
           problem={problem}
           answer={answers[problem.id] ?? ""}
-          grade={grades[problem.id] ?? null}
-          pending={pendingId === problem.id}
           onAnswer={(value) => setAnswers((current) => ({ ...current, [problem.id]: value }))}
           onRunOutput={(output) => setRuns((current) => ({ ...current, [problem.id]: output }))}
-          disabled={locked}
-          onSubmit={() => {
-            const answer = (answers[problem.id] ?? "").trim();
-            if (!answer) {
-              setGradeError("Write an answer before asking for a score.");
-              return;
-            }
-            if (locked) {
-              setGradeError("This material is locked.");
-              return;
-            }
-            setGradeError("");
-            if (problem.type === "multiple_choice" && !hardcoreText) {
-              const correct = answer === problem.answer;
-              setGrades((current) => ({
-                ...current,
-                [problem.id]: {
-                  score: correct ? 100 : 0,
-                  feedback: correct
-                    ? "That's the choice supported by the summary."
-                    : `Not quite. The summary points to: ${problem.answer}`,
-                },
-              }));
-              return;
-            }
-            setPendingId(problem.id);
-            const endpoint = problem.type === "multiple_choice" ? "/api/hardcore" : "/api/grade";
-            const body =
-              problem.type === "multiple_choice"
-                ? { action: "answer", text: hardcoreText, problemId: problem.id, choice: answer }
-                : {
-                    type: problem.type,
-                    prompt: problem.prompt,
-                    rubric: problem.rubric,
-                    response: answer,
-                    summary,
-                    runOutput: runs[problem.id] ?? "",
-                    hardcoreText,
-                    problemId: hardcoreText ? problem.id : "",
-                  };
-            void fetch(endpoint, {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify(body),
-            })
-              .then(async (response) => {
-                const payload = (await response.json().catch(() => null)) as
-                  | (ProblemGrade & { error?: string; hardcore?: unknown; hardcoreError?: string })
-                  | null;
-                if (!response.ok || !payload || typeof payload.score !== "number" || !payload.feedback) {
-                  throw new Error(payload?.error || "That answer couldn't be scored. Try again.");
-                }
-                if (isHardcoreSnapshot(payload.hardcore)) noteHardcoreResult(payload.hardcore);
-                if (payload.hardcoreError) setGradeError(payload.hardcoreError);
-                setGrades((current) => ({
-                  ...current,
-                  [problem.id]: { score: payload.score, feedback: payload.feedback },
-                }));
-              })
-              .catch((caught: unknown) => {
-                setGradeError(caught instanceof Error ? caught.message : "Claude couldn't score that answer. Try again.");
-              })
-              .finally(() => setPendingId(""));
-          }}
+          disabled={locked || submitting}
         />
       ))}
+      {submitting ? <LoadingProgress label="Scoring your answers…" /> : null}
       {gradeError ? (
         <p className="text-sm text-danger" role="alert">
           {gradeError}
         </p>
       ) : null}
+      <div>
+        <button
+          type="button"
+          onClick={() => void submitAll()}
+          disabled={submitting || locked}
+          className="rounded-xl bg-accent px-5 py-3 font-semibold text-white disabled:opacity-60"
+        >
+          {submitting ? "Scoring…" : "Submit"}
+        </button>
+        <p className="mt-2 text-sm leading-relaxed text-muted">Blank answers score 0. Submit stops the timer.</p>
+      </div>
     </div>
   );
 }
@@ -327,25 +312,17 @@ function ProblemCard({
   index,
   problem,
   answer,
-  grade,
-  pending,
   onAnswer,
   onRunOutput,
-  onSubmit,
   disabled,
 }: {
   index: number;
   problem: Problem;
   answer: string;
-  grade: ProblemGrade | null;
-  pending: boolean;
   onAnswer: (value: string) => void;
   onRunOutput: (output: string) => void;
-  onSubmit: () => void;
   disabled: boolean;
 }) {
-  const passed = grade ? grade.score >= STUDY.passingScore : false;
-
   return (
     <article className="rounded-2xl border border-line bg-card p-4 sm:p-5">
       <h2 className="font-serif text-2xl text-ink">
@@ -353,7 +330,7 @@ function ProblemCard({
       </h2>
       <div className="mt-4">
         {problem.type === "multiple_choice" ? (
-          <fieldset className="flex flex-col gap-2">
+          <fieldset className="flex flex-col gap-2" disabled={disabled}>
             <legend className="sr-only">Choices</legend>
             {problem.choices.map((choice, choiceIndex) => (
               <label key={`${choiceIndex}-${choice}`} className="flex items-start gap-2 text-sm leading-relaxed">
@@ -370,33 +347,96 @@ function ProblemCard({
           </fieldset>
         ) : null}
         {problem.type === "code" ? (
-          <CodePad language={problem.language} value={answer} onChange={onAnswer} onRunOutput={onRunOutput} />
+          <CodePad
+            language={problem.language}
+            value={answer}
+            onChange={onAnswer}
+            onRunOutput={onRunOutput}
+            disabled={disabled}
+          />
         ) : null}
         {problem.type !== "multiple_choice" && problem.type !== "code" ? (
           <textarea
             value={answer}
             onChange={(event) => onAnswer(event.target.value)}
             rows={problem.type === "deliverable" ? 10 : 5}
-            className="w-full rounded-xl border border-line bg-paper px-3 py-2 text-ink"
+            disabled={disabled}
+            className="w-full rounded-xl border border-line bg-paper px-3 py-2 text-ink disabled:opacity-60"
             placeholder={placeholderFor(problem.type)}
           />
         ) : null}
       </div>
-      <button
-        type="button"
-        onClick={onSubmit}
-        disabled={pending || disabled}
-        className="mt-4 rounded-xl bg-accent px-5 py-3 font-semibold text-white disabled:opacity-60"
-      >
-        {pending ? "Scoring…" : "Score this answer"}
-      </button>
-      {grade ? (
-        <p className={`mt-3 text-sm leading-relaxed ${passed ? "text-accent" : "text-warn"}`} role="status">
-          {grade.score} / 100. {passed ? "Passed." : "Not yet."} {grade.feedback}
-        </p>
-      ) : null}
     </article>
   );
+}
+
+async function scoreProblem(
+  problem: Problem,
+  input: { answer: string; summary: string; runOutput: string; hardcoreText: string },
+): Promise<ProblemGrade> {
+  if (!input.answer) return { score: 0, feedback: "No answer." };
+  if (problem.type === "multiple_choice" && !input.hardcoreText) {
+    const correct = input.answer === problem.answer;
+    return {
+      score: correct ? 100 : 0,
+      feedback: correct
+        ? "That's the choice supported by the summary."
+        : `Not quite. The summary points to: ${problem.answer}`,
+    };
+  }
+
+  const endpoint = problem.type === "multiple_choice" ? "/api/hardcore" : "/api/grade";
+  const body =
+    problem.type === "multiple_choice"
+      ? { action: "answer", text: input.hardcoreText, problemId: problem.id, choice: input.answer }
+      : {
+          type: problem.type,
+          prompt: problem.prompt,
+          rubric: problem.rubric,
+          response: input.answer,
+          summary: input.summary,
+          runOutput: input.runOutput,
+          hardcoreText: input.hardcoreText,
+          problemId: input.hardcoreText ? problem.id : "",
+        };
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new Error("We couldn't reach Learn Quick. Make sure the app is running, then try again.");
+  }
+  const payload = (await response.json().catch(() => null)) as
+    | (ProblemGrade & { error?: string; hardcore?: unknown; hardcoreError?: string })
+    | null;
+  if (!response.ok || !payload || typeof payload.score !== "number" || !payload.feedback) {
+    throw new Error(payload?.error || "That answer couldn't be scored. Try again.");
+  }
+  if (isHardcoreSnapshot(payload.hardcore)) noteHardcoreResult(payload.hardcore);
+  if (payload.hardcoreError) throw new Error(payload.hardcoreError);
+  return { score: payload.score, feedback: payload.feedback };
+}
+
+async function finishHardcore(text: string): Promise<"passed" | "failed"> {
+  let response: Response;
+  try {
+    response = await fetch("/api/hardcore", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "finish", text }),
+    });
+  } catch {
+    throw new Error("We couldn't finish hardcore mode. Make sure the app is running, then try again.");
+  }
+  const payload = (await response.json().catch(() => null)) as { error?: string; hardcore?: unknown } | null;
+  if (isHardcoreSnapshot(payload?.hardcore)) noteHardcoreResult(payload.hardcore);
+  if (!response.ok || !isHardcoreSnapshot(payload?.hardcore)) {
+    throw new Error(payload?.error || "Hardcore mode couldn't be finished. Try again.");
+  }
+  return payload.hardcore.status === "passed" ? "passed" : "failed";
 }
 
 function placeholderFor(type: Problem["type"]) {

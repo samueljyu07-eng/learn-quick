@@ -162,22 +162,20 @@ function HardcoreCard({ reasoning, onRetry }: { reasoning: string; onRetry: () =
   if (!state || state.status === "none") return <LoadingCard message="Starting the hardcore timer…" />;
 
   const remaining = clock.remainingSeconds ?? 0;
-  const planned = (state.minutes ?? 0) * 60;
-  const ratio = planned > 0 ? remaining / planned : 0;
   const failed = state.status === "failed" || state.locked;
   const waiting = state.status === "open" && remaining <= 0;
+  const armed = state.status === "open" && remaining > 0;
 
   return (
     <>
-      <section className="relative w-44 rounded-2xl border border-line bg-card p-3 shadow-sm">
-        <div className="flex items-center gap-2" role="timer" aria-label={hardcoreLabel(state.status, remaining)}>
-          <ProgressRing ratio={failed ? 0 : ratio} />
-          <div>
-            <p className="text-[11px] font-semibold tracking-wide text-muted uppercase">Hardcore</p>
-            <p className="font-semibold text-xl tabular-nums text-ink">
-              {failed ? "FAILED" : state.status === "passed" ? "Passed" : formatTime(remaining)}
-            </p>
-          </div>
+      <section className="relative w-56 rounded-2xl border border-line bg-card p-3 shadow-sm">
+        <p className="text-center text-[11px] font-semibold tracking-[0.22em] text-accent uppercase">Hardcore</p>
+        <div role="timer" aria-label={hardcoreLabel(state.status, remaining)}>
+          <BombClock
+            seconds={failed ? 0 : remaining}
+            blink={armed}
+            label={failed ? "FAILED" : state.status === "passed" ? "PASSED" : null}
+          />
         </div>
         <ReasonTip
           reasoning={reasoning}
@@ -250,11 +248,12 @@ function TimerCard() {
   return (
     <>
       <section className="relative w-44 rounded-2xl border border-line bg-card p-3 shadow-sm">
-        <div className="flex items-center gap-2" role="timer" aria-label={timerLabel(remaining, timer.running)}>
+        <div className="flex items-center gap-2" role="timer" aria-label={timerLabel(remaining, timer.running, timer.stopped)}>
           <ProgressRing ratio={ratio} />
           <div>
             <p className="text-[11px] font-semibold tracking-wide text-muted uppercase">Study time</p>
             <p className="font-semibold text-xl tabular-nums text-ink">{formatTime(remaining)}</p>
+            {timer.stopped ? <p className="text-[11px] font-semibold text-muted">Stopped</p> : null}
           </div>
         </div>
 
@@ -266,7 +265,7 @@ function TimerCard() {
           <button
             type="button"
             onClick={startTimer}
-            disabled={timer.running || remaining <= 0}
+            disabled={timer.stopped || timer.running || remaining <= 0}
             className="rounded-lg bg-accent px-1 py-1.5 text-xs font-semibold text-white disabled:opacity-40"
           >
             Start
@@ -274,7 +273,7 @@ function TimerCard() {
           <button
             type="button"
             onClick={pauseTimer}
-            disabled={!timer.running}
+            disabled={timer.stopped || !timer.running}
             className="rounded-lg border border-line bg-card px-1 py-1.5 text-xs font-semibold text-ink disabled:opacity-40"
           >
             Pause
@@ -282,7 +281,8 @@ function TimerCard() {
           <button
             type="button"
             onClick={resetTimer}
-            className="rounded-lg border border-line bg-card px-1 py-1.5 text-xs font-semibold text-ink"
+            disabled={timer.stopped}
+            className="rounded-lg border border-line bg-card px-1 py-1.5 text-xs font-semibold text-ink disabled:opacity-40"
           >
             Reset
           </button>
@@ -293,7 +293,7 @@ function TimerCard() {
           <button
             type="button"
             onClick={() => adjustTimer(-5)}
-            disabled={remaining <= 0}
+            disabled={timer.stopped || remaining <= 0}
             aria-label="Remove 5 minutes"
             className="rounded-lg border border-line bg-card px-2 py-1 text-xs font-semibold text-ink disabled:opacity-40"
           >
@@ -302,7 +302,7 @@ function TimerCard() {
           <button
             type="button"
             onClick={() => adjustTimer(5)}
-            disabled={remaining >= 240 * 60}
+            disabled={timer.stopped || remaining >= 240 * 60}
             aria-label="Add 5 minutes"
             className="rounded-lg border border-line bg-card px-2 py-1 text-xs font-semibold text-ink disabled:opacity-40"
           >
@@ -378,6 +378,23 @@ function ProgressRing({ ratio }: { ratio: number }) {
   );
 }
 
+function BombClock({ seconds, blink, label }: { seconds: number; blink: boolean; label: string | null }) {
+  const [minutes, secs] = formatTime(seconds).split(":");
+  return (
+    <div className="bomb-clock" aria-hidden="true">
+      {label ? (
+        <span className="bomb-digits bomb-word">{label}</span>
+      ) : (
+        <>
+          <span className="bomb-digits">{minutes}</span>
+          <span className={`bomb-digits ${blink ? "bomb-colon" : ""}`}>:</span>
+          <span className="bomb-digits">{secs}</span>
+        </>
+      )}
+    </div>
+  );
+}
+
 function formatTime(totalSeconds: number) {
   const safe = Math.max(0, totalSeconds);
   const minutes = Math.floor(safe / 60);
@@ -385,7 +402,7 @@ function formatTime(totalSeconds: number) {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
-function timerLabel(remaining: number, running: boolean) {
-  const state = running ? "running" : "paused";
+function timerLabel(remaining: number, running: boolean, stopped: boolean) {
+  const state = stopped ? "stopped" : running ? "running" : "paused";
   return `Study timer ${formatTime(remaining)} remaining, ${state}`;
 }

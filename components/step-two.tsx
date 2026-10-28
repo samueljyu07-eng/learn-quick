@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { LoadingProgress } from "@/components/loading-progress";
 import { ProgressBar } from "@/components/progress-bar";
 import { SiteHeader } from "@/components/site-header";
 import { useSession } from "@/components/session-provider";
@@ -141,11 +142,7 @@ function DefinitionList({
         </p>
       ) : null}
 
-      {loading ? (
-        <p className="mt-6 text-base text-muted" role="status">
-          Finding the key terms…
-        </p>
-      ) : null}
+      {loading ? <LoadingProgress className="mt-6" label="Finding the key terms…" /> : null}
 
       {error ? (
         <div className="mt-6 rounded-xl bg-danger-bg px-4 py-3 text-sm leading-relaxed text-danger" role="alert">

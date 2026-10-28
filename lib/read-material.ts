@@ -30,17 +30,32 @@ export async function extractUploadedFile(file: File): Promise<ExtractedMaterial
   }
 
   const fileName = file.name || "upload";
-  const lower = fileName.toLowerCase();
-  const isPdf = lower.endsWith(".pdf") || file.type === "application/pdf";
-  const isTxt = lower.endsWith(".txt") || file.type === "text/plain";
-
-  if (!isPdf && !isTxt) {
-    throw new MaterialError("Please upload a .pdf or .txt file.");
+  const kind = uploadKind(fileName, file.type);
+  if (!kind) {
+    throw new MaterialError("Please upload a .pdf, .txt, .md, or .html file.");
   }
 
   const bytes = new Uint8Array(await file.arrayBuffer());
-  const text = isPdf ? await pdfToText(bytes) : decodeText(bytes);
-  return finish(text, "file", { fileName, url: "", title: "" });
+  if (kind === "pdf") {
+    return finish(await pdfToText(bytes), "file", { fileName, url: "", title: "" });
+  }
+  if (kind === "html") {
+    const raw = decodeText(bytes);
+    return finish(htmlToText(raw), "file", { fileName, url: "", title: extractHtmlTitle(raw) });
+  }
+  return finish(decodeText(bytes), "file", { fileName, url: "", title: "" });
+}
+
+function uploadKind(fileName: string, mime: string): "pdf" | "html" | "text" | null {
+  const lower = fileName.toLowerCase();
+  const extension = lower.includes(".") ? lower.slice(lower.lastIndexOf(".")) : "";
+  if (extension === ".pdf") return "pdf";
+  if (extension === ".html" || extension === ".htm") return "html";
+  if (extension === ".txt" || extension === ".md" || extension === ".markdown") return "text";
+  if (mime === "application/pdf") return "pdf";
+  if (mime === "text/html") return "html";
+  if (mime === "text/plain" || mime === "text/markdown" || mime === "text/x-markdown") return "text";
+  return null;
 }
 
 export async function extractFromUrl(rawUrl: string): Promise<ExtractedMaterial> {

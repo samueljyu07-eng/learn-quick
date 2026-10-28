@@ -25,6 +25,7 @@ export type TimerView = {
   running: boolean;
   endsAt: number | null;
   timeUp: boolean;
+  stopped: boolean;
   storageWarning: string;
   controlled?: boolean;
 };
@@ -40,6 +41,7 @@ const HIDDEN: TimerView = {
   running: false,
   endsAt: null,
   timeUp: false,
+  stopped: false,
   storageWarning: "",
 };
 
@@ -91,6 +93,7 @@ function toStored(state: TimerView) {
     running: state.running,
     endsAt: state.endsAt,
     timeUp: state.timeUp,
+    stopped: state.stopped,
   };
 }
 
@@ -122,7 +125,8 @@ function isStoredTimer(value: unknown): value is ReturnType<typeof toStored> {
     Number.isFinite(item.remainingSeconds) &&
     typeof item.running === "boolean" &&
     (item.endsAt === null || typeof item.endsAt === "number") &&
-    typeof item.timeUp === "boolean"
+    typeof item.timeUp === "boolean" &&
+    (item.stopped === undefined || typeof item.stopped === "boolean")
   );
 }
 
@@ -153,9 +157,14 @@ function loadFromStorage() {
       running: parsed.running,
       endsAt: parsed.endsAt,
       timeUp: parsed.timeUp,
+      stopped: parsed.stopped === true,
       storageWarning: "",
     };
-    if (next.running && next.endsAt != null) {
+    if (next.stopped) {
+      next.running = false;
+      next.endsAt = null;
+      next.timeUp = false;
+    } else if (next.running && next.endsAt != null) {
       const remaining = Math.round((next.endsAt - Date.now()) / 1000);
       if (remaining <= 0) {
         next.running = false;
@@ -339,6 +348,7 @@ export function requestEstimate(
         running: false,
         endsAt: null,
         timeUp: false,
+        stopped: false,
         storageWarning: "",
         controlled: session.hardcore === true,
       });
@@ -406,7 +416,7 @@ async function fetchEstimate(
 }
 
 export function startTimer() {
-  if (snapshot.controlled || snapshot.status !== "ready" || snapshot.running) return;
+  if (snapshot.stopped || snapshot.controlled || snapshot.status !== "ready" || snapshot.running) return;
   const remaining = liveRemaining(snapshot);
   if (remaining <= 0) return;
   remember({
@@ -419,7 +429,7 @@ export function startTimer() {
 }
 
 export function pauseTimer() {
-  if (snapshot.controlled || snapshot.status !== "ready" || !snapshot.running) return;
+  if (snapshot.stopped || snapshot.controlled || snapshot.status !== "ready" || !snapshot.running) return;
   const remaining = liveRemaining(snapshot);
   remember({
     ...snapshot,
@@ -431,7 +441,7 @@ export function pauseTimer() {
 }
 
 export function resetTimer() {
-  if (snapshot.controlled || snapshot.status !== "ready") return;
+  if (snapshot.stopped || snapshot.controlled || snapshot.status !== "ready") return;
   const seconds = snapshot.estimatedMinutes * 60;
   remember({
     ...snapshot,
@@ -444,7 +454,7 @@ export function resetTimer() {
 }
 
 export function adjustTimer(deltaMinutes: number) {
-  if (snapshot.controlled || snapshot.status !== "ready") return;
+  if (snapshot.stopped || snapshot.controlled || snapshot.status !== "ready") return;
   const remaining = liveRemaining(snapshot);
   const nextRemaining = Math.min(MAX_SECONDS, Math.max(0, remaining + deltaMinutes * 60));
   const planned = Math.max(nextRemaining, snapshot.plannedSeconds + deltaMinutes * 60);
@@ -460,7 +470,7 @@ export function adjustTimer(deltaMinutes: number) {
 }
 
 export function addTenMinutes() {
-  if (snapshot.controlled || snapshot.status !== "ready") return;
+  if (snapshot.stopped || snapshot.controlled || snapshot.status !== "ready") return;
   const remaining = Math.min(MAX_SECONDS, liveRemaining(snapshot) + 10 * 60);
   remember({
     ...snapshot,
@@ -472,8 +482,21 @@ export function addTenMinutes() {
   });
 }
 
+export function stopTimer() {
+  if (snapshot.status !== "ready" || snapshot.stopped) return;
+  const remaining = liveRemaining(snapshot);
+  remember({
+    ...snapshot,
+    remainingSeconds: remaining,
+    running: false,
+    endsAt: null,
+    timeUp: false,
+    stopped: true,
+  });
+}
+
 export function finishUp() {
-  if (snapshot.status !== "ready") return;
+  if (snapshot.stopped || snapshot.status !== "ready") return;
   remember({
     ...snapshot,
     remainingSeconds: 0,

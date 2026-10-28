@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import Link from "next/link";
 
+import { setHardcoreDraft } from "@/components/hardcore-theme";
 import { ProgressBar } from "@/components/progress-bar";
 import { SiteHeader } from "@/components/site-header";
 import { useSession } from "@/components/session-provider";
@@ -46,12 +47,21 @@ export function StepOne() {
   const errorRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const showSaved = Boolean(session) && !editing;
+
   useEffect(() => {
     if (!error) return;
     errorRef.current?.focus();
   }, [error]);
 
-  const showSaved = Boolean(session) && !editing;
+  useEffect(() => {
+    if (!hydrated || showSaved) {
+      setHardcoreDraft(null);
+      return;
+    }
+    setHardcoreDraft(hardcore);
+    return () => setHardcoreDraft(null);
+  }, [hydrated, showSaved, hardcore]);
 
   function beginEdit() {
     if (!session) return;
@@ -98,16 +108,19 @@ export function StepOne() {
       return;
     }
     const lower = next.name.toLowerCase();
+    const extension = lower.includes(".") ? lower.slice(lower.lastIndexOf(".")) : "";
     const allowed =
-      lower.endsWith(".pdf") ||
-      lower.endsWith(".txt") ||
+      [".pdf", ".txt", ".md", ".markdown", ".html", ".htm"].includes(extension) ||
       next.type === "application/pdf" ||
-      next.type === "text/plain";
+      next.type === "text/plain" ||
+      next.type === "text/html" ||
+      next.type === "text/markdown" ||
+      next.type === "text/x-markdown";
     if (!allowed) {
       setFile(null);
       setFileName("");
       if (fileInputRef.current) fileInputRef.current.value = "";
-      setError("Please upload a .pdf or .txt file.");
+      setError("Please upload a .pdf, .txt, .md, or .html file.");
       return;
     }
     if (next.size > MAX_UPLOAD_BYTES) {
@@ -156,7 +169,7 @@ export function StepOne() {
       return;
     }
     if (source === "file" && !file && session?.material.source !== "file") {
-      setError("Choose a PDF or TXT file to upload.");
+      setError("Choose a .pdf, .txt, .md, or .html file to upload.");
       return;
     }
     if (source === "url" && !url.trim()) {
@@ -314,7 +327,7 @@ export function StepOne() {
           <fieldset className="rounded-2xl border border-line bg-card p-4 sm:p-6">
             <legend className="px-1 font-serif text-2xl text-ink">Your material</legend>
             <p className="mt-1 text-sm leading-relaxed text-muted">
-              Paste text, upload a PDF or TXT file, or share a public link.
+              Paste text, upload a .txt, .md, .html, or .pdf file, or share a public link.
             </p>
             <div className="mt-4 grid grid-cols-3 gap-1 rounded-xl bg-paper p-1">
               {SOURCES.map((item) => {
@@ -368,13 +381,13 @@ export function StepOne() {
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept=".pdf,.txt,application/pdf,text/plain"
+                    accept=".pdf,.txt,.md,.markdown,.html,.htm,application/pdf,text/plain,text/html,text/markdown"
                     onChange={(event) => onFileChange(event.target.files?.[0] ?? null)}
                     className="absolute inset-0 cursor-pointer opacity-0"
-                    aria-label="Choose a PDF or TXT file"
+                    aria-label="Choose a .txt, .md, .html, or .pdf file"
                   />
                   <div className="pointer-events-none px-4 py-8 text-center">
-                    <p className="font-semibold text-ink">Choose a PDF or TXT file</p>
+                    <p className="font-semibold text-ink">Choose a .txt, .md, .html, or .pdf file</p>
                     <p className="mt-1 text-sm text-muted">Up to 10 MB</p>
                   </div>
                 </div>
@@ -469,7 +482,7 @@ export function StepOne() {
       )}
       {confirmOpen ? (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 px-4"
+          className="hardcore-scrim fixed inset-0 z-50 flex items-center justify-center px-4"
           role="dialog"
           aria-modal="true"
           aria-labelledby="hardcore-title"
@@ -552,7 +565,7 @@ async function collectMaterial(
     if (input.session?.material.source === "file" && input.session.material.text) {
       return input.session.material;
     }
-    throw new Error("Choose a PDF or TXT file to upload.");
+    throw new Error("Choose a .pdf, .txt, .md, or .html file to upload.");
   }
 
   const typedUrl = input.url.trim();

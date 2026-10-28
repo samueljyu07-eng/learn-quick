@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { MAX_MATERIAL_CHARS } from "@/lib/limits";
 import { learnerId } from "@/lib/learner-id";
-import { inspectMaterial, listLockTitles, scoreChoice } from "@/lib/hardcore-store";
+import { finishAttempt, inspectMaterial, listLockTitles, scoreChoice } from "@/lib/hardcore-store";
 
 export async function GET() {
   const learner = await learnerId();
@@ -35,6 +35,14 @@ export async function POST(request: Request) {
   if (action === "check" || action === "status") {
     const gate = await inspectMaterial(learner, text);
     return NextResponse.json(gate);
+  }
+
+  if (action === "finish") {
+    const result = await finishAttempt(learner, text);
+    if (!result.ok) {
+      return NextResponse.json({ error: result.error, hardcore: result.hardcore }, { status: result.status });
+    }
+    return NextResponse.json({ hardcore: result.hardcore });
   }
 
   if (action === "answer") {

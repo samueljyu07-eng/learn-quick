@@ -15,11 +15,13 @@ export function CodePad({
   value,
   onChange,
   onRunOutput,
+  disabled = false,
 }: {
   language: string;
   value: string;
   onChange: (value: string) => void;
   onRunOutput: (output: string) => void;
+  disabled?: boolean;
 }) {
   const [running, setRunning] = useState(false);
   const [output, setOutput] = useState("");
@@ -35,14 +37,14 @@ export function CodePad({
           theme="vs"
           value={value}
           onChange={(next) => onChange(next ?? "")}
-          options={{ minimap: { enabled: false }, fontSize: 14, scrollBeyondLastLine: false }}
+          options={{ minimap: { enabled: false }, fontSize: 14, scrollBeyondLastLine: false, readOnly: disabled }}
         />
       </div>
       {python ? (
         <div>
           <button
             type="button"
-            disabled={running}
+            disabled={running || disabled}
             onClick={() => {
               setRunning(true);
               setRunError("");

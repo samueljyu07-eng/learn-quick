@@ -21,7 +21,7 @@ export async function POST(request: Request) {
     if (kind === "file") {
       const file = form.get("file");
       if (!(file instanceof File)) {
-        throw new MaterialError("Choose a PDF or TXT file to upload.");
+        throw new MaterialError("Choose a .pdf, .txt, .md, or .html file to upload.");
       }
       return await respondWithMaterial(await extractUploadedFile(file));
     }

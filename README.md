@@ -28,7 +28,7 @@ Use Safari or Chrome. The in-editor browser can reload the page in a loop and ca
 ## The study path
 
 1. **Objective.** Paste text, upload a `.txt`, `.md`, `.html`, or `.pdf`, or give a link. Pick a goal: pass a test, learn a skill, understand the ideas, or apply them to a task you have now. You can add context, such as the test format or the real task.
-2. **Definitions.** Claude extracts key terms. You can check the ones you understand. Checked terms are saved in **My definitions**.
+2. **Definitions.** Claude extracts key terms. A moving bar shows while the terms are being found. You can check the ones you understand. Checked terms are saved in **My definitions**.
 3. **Explain.** Three sentences that orient you before the summary.
 4. **Summary.** A short summary tied to your goal, with links back to the source passages. A clarification box lets you ask for a revision.
 5. **Check.** Shown in the progress bar. Not built yet.
@@ -47,15 +47,15 @@ The timer does not ask Claude for a minute count. Claude rates difficulty from 1
 
 The total is rounded and kept between 5 and 120 minutes. **Why this time?** shows the breakdown. Change the numbers in `config/study.ts`.
 
-The timer counts down from an end time. Start, pause, reset, and the five-minute buttons still work when hardcore mode is off. A refresh keeps the remaining time.
+The timer counts down from an end time. Start, pause, reset, and the five-minute buttons still work when hardcore mode is off. A refresh keeps the remaining time. Submit on the practice page stops this timer for good. Those controls stay off until you start over, which clears it.
 
 ## Hardcore mode
 
-On step 1, hardcore mode is optional. Turning it on asks you to confirm: if you don't pass the practice problems before the timer ends, that material is locked forever.
+On step 1, hardcore mode is optional. Checking the box switches the page to a black theme with dark grey panels and red accents. Unchecking it switches back. Saving with the box on asks you to confirm: if you don't pass the practice problems before the timer ends, that material is locked forever. A saved hardcore session keeps the black theme on every step.
 
-The deadline is saved on the server when the study time is calculated. Refreshing the page does not move it, and hardcore mode has no pause, reset, or add-time controls. The countdown you see is that server deadline.
+The deadline is saved on the server when the study time is calculated. Refreshing the page does not move it, and hardcore mode has no pause, reset, or add-time controls. The countdown you see is that server deadline, shown as a red LED clock. The colon blinks while time is still running. When the attempt ends, the clock reads PASSED or FAILED.
 
-You pass if every practice problem has a score and the average is 70 or higher before the deadline. Otherwise the material is marked FAILED. Learn Quick stores a fingerprint of the text (lowercase, with spaces and punctuation removed, then SHA-256). A later paste or upload that matches, or is about 90% the same, is rejected with "This material is locked." **Locked materials** lists the titles.
+Submit on the practice page ends the attempt immediately. Blank answers score 0. An average of 70 or higher passes, and the clock stops. A lower average marks the material FAILED and locks it, even if time is left. If the deadline arrives first, the material is marked FAILED. Learn Quick stores a fingerprint of the text (lowercase, with spaces and punctuation removed, then SHA-256). A later paste or upload that matches, or is about 90% the same, is rejected with "This material is locked." **Locked materials** lists the titles.
 
 Until accounts arrive in the next phase, the lock belongs to a private cookie in this browser. Clearing site data for this app starts a new cookie. The deadline itself still cannot be edited from the page.
 
@@ -70,7 +70,9 @@ The set matches the goal from step 1:
 | Understand | 3 prompts to explain the idea in your own words. |
 | Apply it | One draft of your real task, scored against a rubric built from your outcome. |
 
-Each answer gets a score from 0 to 100 and a short note. 70 or higher passes. Multiple-choice is scored in the app. Written answers and code are scored by Claude. The first Python run downloads Python into the browser, so it can take a little while.
+A moving bar shows while the problems are being written. One **Submit** button at the bottom scores every answer. Blank answers score 0. Each answer gets a score from 0 to 100 and a short note. 70 or higher passes. Multiple-choice is scored in the app. In hardcore mode the choice is checked on the server, so the correct answer stays hidden. Written answers and code are scored by Claude. A moving bar shows while the scores come back. The first Python run downloads Python into the browser, so it can take a little while.
+
+Submit opens the results page and stops the timer. The page shows the average, Passed or Not yet, and each problem's score plus its note. In hardcore mode it also says whether you passed in time or the material is locked. **Start over** clears this session and returns to step 1. This page is the end of the session. Step 5 stays unbuilt.
 
 New problem types are added in `lib/problems/registry.ts`.
 
@@ -84,6 +86,7 @@ Nothing is in a database yet.
 | My definitions | `localStorage`, key `learn-quick-library` |
 | Familiarity for a material | `localStorage`, key `learn-quick-familiarity` |
 | The timer | `localStorage`, key `learn-quick-timer` |
+| The score from the last submit | `sessionStorage`, key `learn-quick-results` |
 | Extracted terms, the summary, and practice problems | `sessionStorage` |
 | Hardcore deadlines and locks | On the server, in `data/hardcore.json`, tied to a private browser cookie |
 

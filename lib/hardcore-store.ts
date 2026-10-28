@@ -197,6 +197,48 @@ export function scoreWritten(learnerId: string, text: string, problemId: string,
   });
 }
 
+export function finishAttempt(learnerId: string, text: string) {
+  return change((store) => {
+    const now = Date.now();
+    expire(store, learnerId, now);
+    const normalized = normalizeForLock(text);
+    const run = findRun(store, learnerId, normalized);
+    if (!run) {
+      return {
+        ok: false as const,
+        error: "The hardcore timer has not started yet. Wait for the study time, then submit again.",
+        status: 409,
+        hardcore: viewOf(store, learnerId, normalized, now),
+      };
+    }
+    if (run.status !== "open") {
+      return { ok: true as const, hardcore: viewRun(run, run.status === "failed", now) };
+    }
+    if (!run.problems) {
+      return {
+        ok: false as const,
+        error: "The practice problems are not ready yet. Wait a moment, then submit again.",
+        status: 409,
+        hardcore: viewRun(run, false, now),
+      };
+    }
+    for (const problem of run.problems.problems) {
+      if (typeof run.scores[problem.id] !== "number") run.scores[problem.id] = 0;
+    }
+    const ids = run.problems.problems.map((problem) => problem.id);
+    const average = ids.length ? Math.round(ids.reduce((sum, id) => sum + run.scores[id], 0) / ids.length) : 0;
+    if (average >= STUDY.passingScore) {
+      run.status = "passed";
+      run.finishedAt = now;
+    } else {
+      run.status = "failed";
+      run.finishedAt = now;
+      ensureLock(store, run, now);
+    }
+    return { ok: true as const, hardcore: viewRun(run, run.status === "failed", now) };
+  });
+}
+
 function openRun(store: Store, learnerId: string, text: string, now: number) {
   const normalized = normalizeForLock(text);
   const run = findRun(store, learnerId, normalized);

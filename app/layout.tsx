@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
-import { Literata, Source_Sans_3 } from "next/font/google";
+import { Literata, Share_Tech_Mono, Source_Sans_3 } from "next/font/google";
 
 import { FamiliarityLoader } from "@/components/familiarity-loader";
+import { HardcoreTheme } from "@/components/hardcore-theme";
 import { LearningLoader } from "@/components/learning-loader";
 import { SessionProvider } from "@/components/session-provider";
 import { StudyTimer } from "@/components/study-timer";
@@ -19,6 +20,13 @@ const literata = Literata({
   display: "swap",
 });
 
+const led = Share_Tech_Mono({
+  weight: "400",
+  subsets: ["latin"],
+  variable: "--font-led",
+  display: "swap",
+});
+
 export const metadata: Metadata = {
   title: "Learn Quick",
   description: "Repackage source material around what you need to do with it.",
@@ -26,9 +34,10 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${sourceSans.variable} ${literata.variable} h-full antialiased`}>
+    <html lang="en" className={`${sourceSans.variable} ${literata.variable} ${led.variable} h-full antialiased`}>
       <body className="min-h-full bg-paper font-sans text-ink">
         <SessionProvider>
+          <HardcoreTheme />
           <FamiliarityLoader />
           <LearningLoader />
           <StudyTimer />
