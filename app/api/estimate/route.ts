@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 
-import { parseEstimate, wordCount } from "@/lib/estimate-result";
+import { parseDifficulty } from "@/lib/difficulty-result";
+import { beginRun } from "@/lib/hardcore-store";
+import { learnerId } from "@/lib/learner-id";
+import { MAX_MATERIAL_CHARS } from "@/lib/limits";
 import { objectiveTitle } from "@/lib/objectives";
+import { wordCount } from "@/lib/estimate-result";
+import { calculateStudyTime } from "@/lib/study-time";
 import type { LearnSession, ObjectiveKind } from "@/lib/types";
 
 const MODEL = "claude-sonnet-5-5";
@@ -10,9 +15,9 @@ const KINDS: ObjectiveKind[] = ["test", "skill", "understand", "apply"];
 const SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["estimated_minutes", "reasoning"],
+  required: ["difficulty", "reasoning"],
   properties: {
-    estimated_minutes: { type: "number" },
+    difficulty: { type: "number" },
     reasoning: { type: "string" },
   },
 } as const;
@@ -39,7 +44,14 @@ export async function POST(request: Request) {
     );
   }
 
-  const record = body as { summary?: unknown; objective?: LearnSession["objective"] } | null;
+  const record = body as {
+    summary?: unknown;
+    objective?: LearnSession["objective"];
+    hardcore?: unknown;
+    materialText?: unknown;
+    materialTitle?: unknown;
+    unfamiliarCount?: unknown;
+  } | null;
   const kind = record?.objective?.kind;
   const summary = typeof record?.summary === "string" ? record.summary.trim().slice(0, 20_000) : "";
   if (!kind || !KINDS.includes(kind) || !summary) {
@@ -125,15 +137,41 @@ export async function POST(request: Request) {
     );
   }
 
-  const estimate = parseEstimate(parsed);
-  if (!estimate) {
+  const difficulty = parseDifficulty(parsed);
+  if (!difficulty) {
     return NextResponse.json(
-      { error: "Claude didn't return a study time. Try again." },
+      { error: "Claude didn't rate how hard this summary is. Try again." },
       { status: 502 },
     );
   }
 
-  return NextResponse.json(estimate);
+  if (record?.hardcore !== true) {
+    return NextResponse.json(difficulty);
+  }
+
+  const materialText = typeof record.materialText === "string" ? record.materialText.slice(0, MAX_MATERIAL_CHARS) : "";
+  if (!materialText.trim()) {
+    return NextResponse.json(
+      { error: "Hardcore mode needs the saved material before the timer can start." },
+      { status: 400 },
+    );
+  }
+  const unfamiliarCount =
+    typeof record.unfamiliarCount === "number" && Number.isFinite(record.unfamiliarCount)
+      ? Math.max(0, Math.round(record.unfamiliarCount))
+      : 0;
+  const minutes = calculateStudyTime({
+    summaryWords: wordCount(summary),
+    unfamiliarCount,
+    difficulty: difficulty.difficulty,
+  }).minutes;
+  const hardcore = await beginRun({
+    learnerId: await learnerId(),
+    text: materialText,
+    title: typeof record.materialTitle === "string" ? record.materialTitle : "",
+    minutes,
+  });
+  return NextResponse.json({ ...difficulty, hardcore });
 }
 
 function stringField(value: unknown) {
@@ -153,13 +191,11 @@ function buildPrompt(
   }
 
   return [
-    "Estimate how many minutes a learner should spend on this summary in one sitting.",
-    "This is already a shortened summary, not the original upload. Base the guess on the summary.",
-    "The guess does not need to be precise. Keep estimated_minutes as a whole number from 5 to 120.",
-    "Write reasoning as one short sentence in plain language.",
-    "Base the estimate on the summary's word count, how complex the concepts look, and the selected outcome.",
-    "Complexity means technical vocabulary, abstract ideas, and how many new terms a newcomer would meet.",
-    "Passing a test needs more review time than a general overview. Learning a skill needs time to practice. Applying the material needs time to write an answer.",
+    "Rate how hard this summary is for a newcomer. Do not choose a number of minutes.",
+    "difficulty is a whole number from 1 to 5.",
+    "1 means everyday language and one simple idea. 5 means dense technical ideas a newcomer cannot follow without extra study.",
+    "Use the word count only as a hint. A short summary can still be a 4 or 5.",
+    "reasoning is one short sentence in plain language explaining the rating.",
     "Use only the summary below. Do not add outside facts.",
     "",
     details.join("\n"),

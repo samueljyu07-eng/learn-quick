@@ -4,7 +4,10 @@ import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { useSession } from "@/components/session-provider";
+import { ensureFamiliarity, useFamiliarity } from "@/lib/familiarity-store";
+import { useHardcoreClock, watchHardcore } from "@/lib/hardcore-clock";
 import { useLearning } from "@/lib/learning-store";
+import { hashMaterial } from "@/lib/material-hash";
 import {
   addTenMinutes,
   adjustTimer,
@@ -22,11 +25,35 @@ export function StudyTimer() {
   const { session, hydrated } = useSession();
   const timer = useStudyTimer();
   const learning = useLearning();
+  const [hashed, setHashed] = useState<{ savedAt: string; hash: string } | null>(null);
+  const materialHash = session && hashed?.savedAt === session.savedAt ? hashed.hash : "";
   const summary =
     session && learning.status === "ready" && learning.savedAt === session.savedAt
       ? (learning.result?.summary ?? "")
       : "";
-  const key = session && summary ? summaryTimerKey(session.savedAt, summary) : "";
+  const familiarity = useFamiliarity(materialHash);
+  const key = session && summary && familiarity.record ? summaryTimerKey(session.savedAt, summary) : "";
+
+  useEffect(() => {
+    if (!session) return;
+    let ignore = false;
+    const savedAt = session.savedAt;
+    void hashMaterial(session.material.text).then((hash) => {
+      if (!ignore) setHashed({ savedAt, hash });
+    });
+    return () => {
+      ignore = true;
+    };
+  }, [session]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    if (!session?.hardcore) {
+      watchHardcore(null);
+      return;
+    }
+    watchHardcore(session.material.text);
+  }, [hydrated, session]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -34,27 +61,31 @@ export function StudyTimer() {
       clearTimer();
       return;
     }
-    if (!summary || !key) return;
+    if (!summary || !key || !familiarity.record) return;
     if (timer.savedAt === key && timer.status !== "hidden") return;
-    requestEstimate(session, summary, key);
-  }, [hydrated, session, summary, key, timer.savedAt, timer.status]);
+    requestEstimate(session, summary, familiarity.record.unfamiliarCount, key);
+  }, [hydrated, session, summary, key, familiarity.record, timer.savedAt, timer.status]);
 
   if (!hydrated || !session) return null;
 
   if (!summary || timer.savedAt !== key || timer.status === "hidden") {
     return (
       <TimerShell>
-        {summary ? (
-          <LoadingCard />
-        ) : learning.status === "error" && learning.savedAt === session.savedAt ? (
+        {!summary && learning.status === "error" && learning.savedAt === session.savedAt ? (
           <section className="w-56 rounded-2xl border border-line bg-card p-3 shadow-sm">
             <p className="text-sm leading-relaxed text-muted">Study time starts after your summary is ready.</p>
             <Link href="/explain" className="mt-2 inline-block text-sm font-semibold text-accent underline">
               Open the explanation
             </Link>
           </section>
-        ) : (
+        ) : !summary ? (
           <LoadingCard message="Writing your summary before setting a study time…" />
+        ) : familiarity.error ? (
+          <ErrorCard message={familiarity.error} onRetry={() => void ensureFamiliarity(session)} />
+        ) : !familiarity.record ? (
+          <LoadingCard message="Checking which terms you already know…" />
+        ) : (
+          <LoadingCard message="Rating how hard this summary is…" />
         )}
       </TimerShell>
     );
@@ -67,11 +98,23 @@ export function StudyTimer() {
         <ErrorCard
           message={timer.error}
           onRetry={() => {
-            if (summary && key) requestEstimate(session, summary, key, true);
+            if (summary && key && familiarity.record) {
+              requestEstimate(session, summary, familiarity.record.unfamiliarCount, key, true);
+            }
           }}
         />
       ) : null}
-      {timer.status === "ready" ? <TimerCard /> : null}
+      {timer.status === "ready" && session.hardcore ? (
+        <HardcoreCard
+          reasoning={timer.reasoning}
+          onRetry={() => {
+            if (summary && key && familiarity.record) {
+              requestEstimate(session, summary, familiarity.record.unfamiliarCount, key, true);
+            }
+          }}
+        />
+      ) : null}
+      {timer.status === "ready" && !session.hardcore ? <TimerCard /> : null}
     </TimerShell>
   );
 }
@@ -85,7 +128,7 @@ function TimerShell({ children }: { children: ReactNode }) {
   );
 }
 
-function LoadingCard({ message = "Estimating a study time…" }: { message?: string }) {
+function LoadingCard({ message = "Rating how hard this summary is…" }: { message?: string }) {
   return (
     <section className="w-44 rounded-2xl border border-line bg-card p-3 shadow-sm" aria-live="polite">
       <p className="text-sm leading-relaxed text-muted">{message}</p>
@@ -106,6 +149,94 @@ function ErrorCard({ message, onRetry }: { message: string; onRetry: () => void 
       </button>
     </section>
   );
+}
+
+function HardcoreCard({ reasoning, onRetry }: { reasoning: string; onRetry: () => void }) {
+  const clock = useHardcoreClock();
+  const state = clock.snapshot;
+  const [reasonOpen, setReasonOpen] = useState(false);
+  const [reasonHover, setReasonHover] = useState(false);
+  const showReason = reasonOpen || reasonHover;
+
+  if (clock.phase === "error") return <ErrorCard message={clock.error} onRetry={onRetry} />;
+  if (!state || state.status === "none") return <LoadingCard message="Starting the hardcore timer…" />;
+
+  const remaining = clock.remainingSeconds ?? 0;
+  const planned = (state.minutes ?? 0) * 60;
+  const ratio = planned > 0 ? remaining / planned : 0;
+  const failed = state.status === "failed" || state.locked;
+  const waiting = state.status === "open" && remaining <= 0;
+
+  return (
+    <>
+      <section className="relative w-44 rounded-2xl border border-line bg-card p-3 shadow-sm">
+        <div className="flex items-center gap-2" role="timer" aria-label={hardcoreLabel(state.status, remaining)}>
+          <ProgressRing ratio={failed ? 0 : ratio} />
+          <div>
+            <p className="text-[11px] font-semibold tracking-wide text-muted uppercase">Hardcore</p>
+            <p className="font-semibold text-xl tabular-nums text-ink">
+              {failed ? "FAILED" : state.status === "passed" ? "Passed" : formatTime(remaining)}
+            </p>
+          </div>
+        </div>
+        <ReasonTip
+          reasoning={reasoning}
+          show={showReason}
+          onToggle={() => setReasonOpen((open) => !open)}
+          onHover={setReasonHover}
+        />
+      </section>
+      {waiting ? (
+        <p className="w-56 rounded-2xl border border-line bg-warn-bg p-3 text-sm leading-relaxed text-warn" role="status">
+          Time’s up. Checking whether this material locks…
+        </p>
+      ) : null}
+      {failed ? (
+        <p className="w-56 rounded-2xl border border-danger bg-danger-bg p-3 text-sm leading-relaxed text-danger" role="status">
+          FAILED. This material is locked.
+        </p>
+      ) : null}
+      {state.status === "passed" ? (
+        <p className="w-56 rounded-2xl border border-line bg-accent-soft p-3 text-sm leading-relaxed text-accent" role="status">
+          Passed{state.average != null ? ` with an average of ${state.average}` : ""} before the timer ended.
+        </p>
+      ) : null}
+    </>
+  );
+}
+
+function ReasonTip({
+  reasoning,
+  show,
+  onToggle,
+  onHover,
+}: {
+  reasoning: string;
+  show: boolean;
+  onToggle: () => void;
+  onHover: (hover: boolean) => void;
+}) {
+  return (
+    <div className="relative mt-2" onMouseEnter={() => onHover(true)} onMouseLeave={() => onHover(false)}>
+      <button type="button" aria-expanded={show} onClick={onToggle} className="text-xs font-semibold text-accent underline">
+        Why this time?
+      </button>
+      {show ? (
+        <p
+          role="tooltip"
+          className="absolute top-full right-0 z-50 mt-1 w-64 rounded-xl border border-line bg-card p-3 text-sm leading-relaxed whitespace-pre-line text-ink shadow-sm"
+        >
+          {reasoning}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function hardcoreLabel(status: string, remaining: number) {
+  if (status === "failed") return "Hardcore timer failed. This material is locked.";
+  if (status === "passed") return "Hardcore timer passed.";
+  return `Hardcore timer ${formatTime(remaining)} remaining, running`;
 }
 
 function TimerCard() {
@@ -179,28 +310,12 @@ function TimerCard() {
           </button>
         </div>
 
-        <div
-          className="relative mt-2"
-          onMouseEnter={() => setReasonHover(true)}
-          onMouseLeave={() => setReasonHover(false)}
-        >
-          <button
-            type="button"
-            aria-expanded={showReason}
-            onClick={() => setReasonOpen((open) => !open)}
-            className="text-xs font-semibold text-accent underline"
-          >
-            Why this time?
-          </button>
-          {showReason ? (
-            <p
-              role="tooltip"
-              className="absolute top-full right-0 z-50 mt-1 w-52 rounded-xl border border-line bg-card p-3 text-sm leading-relaxed text-ink shadow-sm"
-            >
-              {timer.reasoning}
-            </p>
-          ) : null}
-        </div>
+        <ReasonTip
+          reasoning={timer.reasoning}
+          show={showReason}
+          onToggle={() => setReasonOpen((open) => !open)}
+          onHover={setReasonHover}
+        />
       </section>
 
       {timer.timeUp ? (

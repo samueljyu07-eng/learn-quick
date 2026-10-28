@@ -91,6 +91,10 @@ function sameTerm(item: SavedDefinition, term: string, source: string) {
   return item.term.trim().toLocaleLowerCase() === term.trim().toLocaleLowerCase() && item.source === source;
 }
 
+export function currentLibraryTerms() {
+  return readItems().map((item) => item.term);
+}
+
 export function useLibrary() {
   const items = useSyncExternalStore(subscribe, readItems, () => []);
   const storageWarning = useSyncExternalStore(subscribe, readWarning, () => "");

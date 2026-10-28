@@ -6,16 +6,21 @@ import { useEffect, useState } from "react";
 import { ProgressBar } from "@/components/progress-bar";
 import { SiteHeader } from "@/components/site-header";
 import { useSession } from "@/components/session-provider";
-import { clearCachedTerms, saveCachedTerms, useCachedTerms } from "@/lib/definition-cache";
+import { clearCachedTerms, definitionCacheKey, useCachedTerms } from "@/lib/definition-cache";
 import type { KeyTerm } from "@/lib/definition-result";
+import { useFamiliarity } from "@/lib/familiarity-store";
 import { useLibrary } from "@/lib/library-store";
+import { loadDefinitions } from "@/lib/load-definitions";
+import { hashMaterial } from "@/lib/material-hash";
 import { materialSourceLabel } from "@/lib/source-label";
 import type { LearnSession } from "@/lib/types";
 
 export function StepTwo() {
   const { session, hydrated } = useSession();
-  const key = session ? `${session.savedAt}|${session.objective.kind}|${session.material.text.length}` : "";
+  const key = session ? definitionCacheKey(session) : "";
   const cached = useCachedTerms(key);
+  const [materialHash, setMaterialHash] = useState("");
+  const familiarity = useFamiliarity(materialHash);
   const [attempt, setAttempt] = useState(0);
   const [error, setError] = useState<{ key: string; message: string } | null>(null);
   const failed = error?.key === key ? error.message : "";
@@ -23,18 +28,16 @@ export function StepTwo() {
 
   useEffect(() => {
     if (!session || cached || failed) return;
-    const controller = new AbortController();
     let ignore = false;
     const cacheKey = key;
 
     void (async () => {
       try {
-        const terms = await requestDefinitions(session, controller.signal);
+        await loadDefinitions(session);
         if (ignore) return;
-        saveCachedTerms(cacheKey, terms);
         setError(null);
       } catch (caught) {
-        if (ignore || (caught instanceof DOMException && caught.name === "AbortError")) return;
+        if (ignore) return;
         setError({
           key: cacheKey,
           message:
@@ -47,9 +50,19 @@ export function StepTwo() {
 
     return () => {
       ignore = true;
-      controller.abort();
     };
   }, [session, cached, failed, key, attempt]);
+
+  useEffect(() => {
+    if (!session) return;
+    let ignore = false;
+    void hashMaterial(session.material.text).then((hash) => {
+      if (!ignore) setMaterialHash(hash);
+    });
+    return () => {
+      ignore = true;
+    };
+  }, [session]);
 
   function tryAgain() {
     if (!key) return;
@@ -91,6 +104,7 @@ export function StepTwo() {
           terms={cached}
           loading={loading}
           error={failed}
+          familiarityNote={familiarityNote(familiarity.record, familiarity.loading)}
           onTryAgain={tryAgain}
         />
       )}
@@ -103,12 +117,14 @@ function DefinitionList({
   terms,
   loading,
   error,
+  familiarityNote,
   onTryAgain,
 }: {
   session: LearnSession;
   terms: KeyTerm[] | null;
   loading: boolean;
   error: string;
+  familiarityNote: string;
   onTryAgain: () => void;
 }) {
   const library = useLibrary();
@@ -118,6 +134,7 @@ function DefinitionList({
   return (
     <section aria-busy={loading}>
       <p className="text-sm text-muted">From {source}</p>
+      {familiarityNote ? <p className="mt-2 text-sm leading-relaxed text-ink">{familiarityNote}</p> : null}
       {library.storageWarning ? (
         <p className="mt-3 rounded-lg bg-warn-bg px-3 py-2 text-sm leading-relaxed text-warn">
           {library.storageWarning}
@@ -188,26 +205,14 @@ function DefinitionList({
   );
 }
 
-async function requestDefinitions(session: LearnSession, signal: AbortSignal): Promise<KeyTerm[]> {
-  let response: Response;
-  try {
-    response = await fetch("/api/definitions", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        objective: session.objective,
-        material: { text: session.material.text },
-      }),
-      signal,
-    });
-  } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") throw error;
-    throw new Error("We couldn't reach Learn Quick. Make sure the app is running, then try again.");
+function familiarityNote(
+  record: { total: number; unfamiliarCount: number } | null,
+  loading: boolean,
+) {
+  if (record) {
+    const known = record.total - record.unfamiliarCount;
+    return `You already know ${known} of ${record.total} key terms. That includes close matches from My definitions.`;
   }
-
-  const payload = (await response.json().catch(() => null)) as { terms?: KeyTerm[]; error?: string } | null;
-  if (!response.ok || !payload?.terms) {
-    throw new Error(payload?.error || "Claude couldn't make the definitions just now. Try again.");
-  }
-  return payload.terms;
+  if (loading) return "Comparing these terms with My definitions…";
+  return "";
 }

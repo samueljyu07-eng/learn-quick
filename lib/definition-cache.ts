@@ -73,6 +73,10 @@ export function clearCachedTerms(key: string) {
   notify();
 }
 
+export function definitionCacheKey(session: { savedAt: string; objective: { kind: string }; material: { text: string } }) {
+  return `${session.savedAt}|${session.objective.kind}|${session.material.text.length}`;
+}
+
 export function useCachedTerms(key: string): KeyTerm[] | null {
   return useSyncExternalStore(subscribe, () => readCachedTerms(key), () => null);
 }

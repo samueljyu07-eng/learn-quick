@@ -22,6 +22,7 @@ export type LearnSession = {
     source: MaterialSource;
   };
   savedAt: string;
+  hardcore?: boolean;
 };
 
 const OBJECTIVE_KINDS: ObjectiveKind[] = ["test", "skill", "understand", "apply"];
@@ -38,6 +39,7 @@ export function isLearnSession(value: unknown): value is LearnSession {
     MATERIAL_SOURCES.includes(session.material?.source) &&
     typeof session.material?.text === "string" &&
     session.material.text.trim().length > 0 &&
-    typeof session.savedAt === "string"
+    typeof session.savedAt === "string" &&
+    (session.hardcore === undefined || typeof session.hardcore === "boolean")
   );
 }

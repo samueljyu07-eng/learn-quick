@@ -89,6 +89,9 @@ export function StepFour() {
           ) : null}
           <p className="text-sm font-semibold text-accent">{OUTCOME_LABEL[outcomeFor(session.objective.kind)]}</p>
           <SummaryBody summary={result.summary} validIds={validIds} onCite={openPassage} />
+          <Link href="/practice" className="inline-block w-fit rounded-xl bg-accent px-5 py-3 font-semibold text-white">
+            Practice these problems
+          </Link>
           {result.needs_clarification ? (
             <ClarificationBox
               session={session}

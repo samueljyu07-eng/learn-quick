@@ -14,6 +14,7 @@ import {
   MAX_UPLOAD_BYTES,
   limitMaterial,
 } from "@/lib/limits";
+import { STUDY } from "@/config/study";
 import { OBJECTIVES, objectiveTitle } from "@/lib/objectives";
 import type { ExtractedMaterial, LearnSession, MaterialSource, ObjectiveKind } from "@/lib/types";
 
@@ -38,6 +39,8 @@ export function StepOne() {
   const [testTopic, setTestTopic] = useState("");
   const [testFormat, setTestFormat] = useState("");
   const [taskDescription, setTaskDescription] = useState("");
+  const [hardcore, setHardcore] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const errorRef = useRef<HTMLDivElement>(null);
@@ -61,6 +64,7 @@ export function StepOne() {
     setTestTopic(session.objective.testTopic);
     setTestFormat(session.objective.testFormat);
     setTaskDescription(session.objective.taskDescription);
+    setHardcore(session.hardcore === true);
     setError("");
     setEditing(true);
   }
@@ -75,6 +79,8 @@ export function StepOne() {
     setTestTopic("");
     setTestFormat("");
     setTaskDescription("");
+    setHardcore(false);
+    setConfirmOpen(false);
     setError("");
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
@@ -124,6 +130,10 @@ export function StepOne() {
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    await save(false);
+  }
+
+  async function save(confirmed: boolean) {
     const kind = objective;
     if (!kind) {
       setError("Choose an objective so later steps know what to focus on.");
@@ -154,6 +164,12 @@ export function StepOne() {
       return;
     }
 
+    if (hardcore && !confirmed) {
+      setConfirmOpen(true);
+      return;
+    }
+    setConfirmOpen(false);
+
     setSaving(true);
     setError("");
     try {
@@ -163,6 +179,13 @@ export function StepOne() {
         file,
         session,
       });
+      const gate = await checkLock(material.text);
+      if (gate.locked) {
+        throw new Error("This material is locked.");
+      }
+      if (gate.active && !hardcore) {
+        throw new Error("Hardcore mode is already running for this material. Leave it on, then save.");
+      }
       saveSession({
         objective: {
           kind,
@@ -172,6 +195,7 @@ export function StepOne() {
         },
         material,
         savedAt: new Date().toISOString(),
+        hardcore,
       });
       setFile(null);
       setEditing(false);
@@ -382,6 +406,29 @@ export function StepOne() {
             ) : null}
           </fieldset>
 
+          <fieldset className="rounded-2xl border border-line bg-card p-4 sm:p-6">
+            <legend className="px-1 font-serif text-2xl text-ink">Hardcore mode</legend>
+            <label className="mt-3 flex cursor-pointer items-start gap-3">
+              <input
+                type="checkbox"
+                checked={hardcore}
+                onChange={(event) => {
+                  setHardcore(event.target.checked);
+                  setConfirmOpen(false);
+                  setError("");
+                }}
+                className="mt-1"
+              />
+              <span>
+                <span className="block font-semibold text-ink">Lock this material if I don&apos;t pass in time</span>
+                <span className="mt-1 block text-sm leading-relaxed text-muted">
+                  Optional. The timer starts when your study time is ready, and it cannot be paused. Passing
+                  means every practice problem is done and the average is {STUDY.passingScore} or higher.
+                </span>
+              </span>
+            </label>
+          </fieldset>
+
           {error ? (
             <div
               ref={errorRef}
@@ -420,8 +467,61 @@ export function StepOne() {
           </p>
         </form>
       )}
+      {confirmOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 px-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="hardcore-title"
+        >
+          <div className="w-full max-w-md rounded-2xl bg-card p-6 shadow-sm">
+            <h2 id="hardcore-title" className="font-serif text-2xl text-ink">
+              Hardcore mode
+            </h2>
+            <p className="mt-3 text-base leading-relaxed text-ink">
+              If you don&apos;t pass the application problems before the timer ends, this material is locked
+              forever. Continue?
+            </p>
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+              <button
+                type="button"
+                onClick={() => void save(true)}
+                disabled={saving}
+                className="rounded-xl bg-accent px-5 py-3 font-semibold text-white disabled:opacity-60"
+              >
+                {saving ? "Reading your material…" : "Continue"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmOpen(false)}
+                className="rounded-xl border border-line bg-card px-5 py-3 font-semibold text-ink"
+              >
+                Go back
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
+}
+
+async function checkLock(text: string) {
+  let response: Response;
+  try {
+    response = await fetch("/api/hardcore", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "check", text }),
+    });
+  } catch {
+    throw new Error("We couldn't check whether this material is locked. Make sure the app is running, then try again.");
+  }
+  const payload = (await response.json().catch(() => null)) as { locked?: boolean; active?: boolean; error?: string } | null;
+  if (!response.ok || !payload) {
+    throw new Error(payload?.error || "We couldn't check whether this material is locked. Try again.");
+  }
+  return { locked: payload.locked === true, active: payload.active === true };
 }
 
 async function collectMaterial(
@@ -545,6 +645,9 @@ function SavedStep({
         <div>
           <dt className="text-sm font-semibold text-muted">Objective</dt>
           <dd className="mt-1 text-base text-ink">{objectiveTitle(session.objective.kind)}</dd>
+          {session.hardcore ? (
+            <dd className="mt-2 text-sm font-semibold text-warn">Hardcore mode is on for this material.</dd>
+          ) : null}
           {session.objective.kind === "test" && session.objective.testTopic ? (
             <dd className="mt-1 text-sm text-ink">Topic: {session.objective.testTopic}</dd>
           ) : null}

@@ -2,7 +2,11 @@
 
 import { useSyncExternalStore } from "react";
 
-import { parseEstimate, type StudyEstimate } from "@/lib/estimate-result";
+import { parseDifficulty } from "@/lib/difficulty-result";
+import { noteHardcoreResult } from "@/lib/hardcore-clock";
+import { isHardcoreSnapshot } from "@/lib/hardcore-types";
+import { wordCount } from "@/lib/estimate-result";
+import { calculateStudyTime, explainStudyTime } from "@/lib/study-time";
 import type { LearnSession } from "@/lib/types";
 
 const STORAGE_KEY = "learn-quick-timer";
@@ -22,6 +26,7 @@ export type TimerView = {
   endsAt: number | null;
   timeUp: boolean;
   storageWarning: string;
+  controlled?: boolean;
 };
 
 const HIDDEN: TimerView = {
@@ -279,10 +284,16 @@ export function summaryTimerKey(savedAt: string, summary: string) {
   for (let index = 0; index < summary.length; index += 1) {
     hash = (Math.imul(hash, 31) + summary.charCodeAt(index)) >>> 0;
   }
-  return `${savedAt}|${hash}`;
+  return `${savedAt}|${hash}|formula2`;
 }
 
-export function requestEstimate(session: LearnSession, summary: string, key: string, force = false) {
+export function requestEstimate(
+  session: LearnSession,
+  summary: string,
+  unfamiliarCount: number,
+  key: string,
+  force = false,
+) {
   if (!force && inFlightFor === key) return;
   if (!force && snapshot.savedAt === key && snapshot.status !== "hidden") return;
 
@@ -296,7 +307,7 @@ export function requestEstimate(session: LearnSession, summary: string, key: str
     window.clearTimeout(waitId);
     waitId = window.setTimeout(() => {
       if (snapshot.status === "loading" && snapshot.savedAt === key) {
-        requestEstimate(session, summary, key, true);
+        requestEstimate(session, summary, unfamiliarCount, key, true);
       }
     }, LOCK_MS - age);
     return;
@@ -313,7 +324,7 @@ export function requestEstimate(session: LearnSession, summary: string, key: str
 
   void (async () => {
     try {
-      const estimate = await fetchEstimate(session, summary);
+      const estimate = await fetchEstimate(session, summary, unfamiliarCount);
       if (id !== generation) return;
       clearLock(key);
       const seconds = estimate.estimated_minutes * 60;
@@ -329,6 +340,7 @@ export function requestEstimate(session: LearnSession, summary: string, key: str
         endsAt: null,
         timeUp: false,
         storageWarning: "",
+        controlled: session.hardcore === true,
       });
     } catch (error) {
       if (id !== generation) return;
@@ -348,7 +360,11 @@ export function requestEstimate(session: LearnSession, summary: string, key: str
   })();
 }
 
-async function fetchEstimate(session: LearnSession, summary: string): Promise<StudyEstimate> {
+async function fetchEstimate(
+  session: LearnSession,
+  summary: string,
+  unfamiliarCount: number,
+): Promise<{ estimated_minutes: number; reasoning: string }> {
   let response: Response;
   try {
     response = await fetch("/api/estimate", {
@@ -357,22 +373,40 @@ async function fetchEstimate(session: LearnSession, summary: string): Promise<St
       body: JSON.stringify({
         objective: session.objective,
         summary,
+        hardcore: session.hardcore === true,
+        materialText: session.hardcore ? session.material.text : "",
+        materialTitle: session.material.title || session.material.fileName,
+        unfamiliarCount,
       }),
     });
   } catch {
     throw new Error("We couldn't reach Learn Quick. Make sure the app is running, then try again.");
   }
 
-  const payload = (await response.json().catch(() => null)) as (StudyEstimate & { error?: string }) | null;
-  const estimate = parseEstimate(payload);
-  if (!response.ok || !estimate) {
-    throw new Error(payload?.error || "Claude couldn't estimate a study time. Try again.");
+  const payload = (await response.json().catch(() => null)) as { error?: string; hardcore?: unknown } | null;
+  const difficulty = parseDifficulty(payload);
+  if (!response.ok || !difficulty) {
+    throw new Error(payload?.error || "Claude couldn't rate how hard this summary is. Try again.");
   }
-  return estimate;
+  if (session.hardcore === true) {
+    if (!isHardcoreSnapshot(payload?.hardcore)) {
+      throw new Error("The hardcore timer didn't start. Try again.");
+    }
+    noteHardcoreResult(payload.hardcore);
+  }
+  const parts = calculateStudyTime({
+    summaryWords: wordCount(summary),
+    unfamiliarCount,
+    difficulty: difficulty.difficulty,
+  });
+  return {
+    estimated_minutes: parts.minutes,
+    reasoning: explainStudyTime(parts, difficulty.reasoning),
+  };
 }
 
 export function startTimer() {
-  if (snapshot.status !== "ready" || snapshot.running) return;
+  if (snapshot.controlled || snapshot.status !== "ready" || snapshot.running) return;
   const remaining = liveRemaining(snapshot);
   if (remaining <= 0) return;
   remember({
@@ -385,7 +419,7 @@ export function startTimer() {
 }
 
 export function pauseTimer() {
-  if (snapshot.status !== "ready" || !snapshot.running) return;
+  if (snapshot.controlled || snapshot.status !== "ready" || !snapshot.running) return;
   const remaining = liveRemaining(snapshot);
   remember({
     ...snapshot,
@@ -397,7 +431,7 @@ export function pauseTimer() {
 }
 
 export function resetTimer() {
-  if (snapshot.status !== "ready") return;
+  if (snapshot.controlled || snapshot.status !== "ready") return;
   const seconds = snapshot.estimatedMinutes * 60;
   remember({
     ...snapshot,
@@ -410,7 +444,7 @@ export function resetTimer() {
 }
 
 export function adjustTimer(deltaMinutes: number) {
-  if (snapshot.status !== "ready") return;
+  if (snapshot.controlled || snapshot.status !== "ready") return;
   const remaining = liveRemaining(snapshot);
   const nextRemaining = Math.min(MAX_SECONDS, Math.max(0, remaining + deltaMinutes * 60));
   const planned = Math.max(nextRemaining, snapshot.plannedSeconds + deltaMinutes * 60);
@@ -426,7 +460,7 @@ export function adjustTimer(deltaMinutes: number) {
 }
 
 export function addTenMinutes() {
-  if (snapshot.status !== "ready") return;
+  if (snapshot.controlled || snapshot.status !== "ready") return;
   const remaining = Math.min(MAX_SECONDS, liveRemaining(snapshot) + 10 * 60);
   remember({
     ...snapshot,

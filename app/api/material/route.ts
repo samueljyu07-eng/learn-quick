@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+import { inspectMaterial } from "@/lib/hardcore-store";
+import { learnerId } from "@/lib/learner-id";
 import { MaterialError, extractFromUrl, extractUploadedFile } from "@/lib/read-material";
 
 export async function POST(request: Request) {
@@ -21,7 +23,7 @@ export async function POST(request: Request) {
       if (!(file instanceof File)) {
         throw new MaterialError("Choose a PDF or TXT file to upload.");
       }
-      return NextResponse.json(await extractUploadedFile(file));
+      return await respondWithMaterial(await extractUploadedFile(file));
     }
 
     if (kind === "url") {
@@ -29,7 +31,7 @@ export async function POST(request: Request) {
       if (typeof url !== "string" || !url.trim()) {
         throw new MaterialError("Paste a web address, starting with https://.");
       }
-      return NextResponse.json(await extractFromUrl(url));
+      return await respondWithMaterial(await extractFromUrl(url));
     }
 
     throw new MaterialError("Choose pasted text, a file, or a link.");
@@ -43,4 +45,12 @@ export async function POST(request: Request) {
       { status: 500 },
     );
   }
+}
+
+async function respondWithMaterial(material: { text: string }) {
+  const gate = await inspectMaterial(await learnerId(), material.text);
+  if (gate.locked) {
+    return NextResponse.json({ error: "This material is locked." }, { status: 403 });
+  }
+  return NextResponse.json(material);
 }
