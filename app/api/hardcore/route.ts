@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 
 import { MAX_MATERIAL_CHARS } from "@/lib/limits";
-import { learnerId } from "@/lib/learner-id";
+import { currentLearner } from "@/lib/learner";
 import { finishAttempt, inspectMaterial, listLockTitles, scoreChoice } from "@/lib/hardcore-store";
 
 export async function GET() {
-  const learner = await learnerId();
+  const learner = await currentLearner();
   const titles = await listLockTitles(learner);
   return NextResponse.json({ titles });
 }
@@ -30,7 +30,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Paste or upload the material first." }, { status: 400 });
   }
 
-  const learner = await learnerId();
+  const learner = await currentLearner();
 
   if (action === "check" || action === "status") {
     const gate = await inspectMaterial(learner, text);

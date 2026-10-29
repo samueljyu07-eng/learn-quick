@@ -22,9 +22,13 @@ function readDraft() {
   return draft;
 }
 
+export function useHardcoreDraft() {
+  return useSyncExternalStore(subscribe, readDraft, () => null);
+}
+
 export function HardcoreTheme() {
   const { session } = useSession();
-  const checkbox = useSyncExternalStore(subscribe, readDraft, () => null);
+  const checkbox = useHardcoreDraft();
   const hardcore = checkbox === null ? session?.hardcore === true : checkbox;
 
   useEffect(() => {

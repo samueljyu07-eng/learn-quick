@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { STUDY } from "@/config/study";
 import { scoreWritten } from "@/lib/hardcore-store";
-import { learnerId } from "@/lib/learner-id";
+import { currentLearner } from "@/lib/learner";
 import { MAX_MATERIAL_CHARS } from "@/lib/limits";
 import { PROBLEM_TYPES, type ProblemType } from "@/lib/problems/types";
 
@@ -132,7 +132,7 @@ export async function POST(request: Request) {
   if (!hardcoreText || !problemId) {
     return NextResponse.json({ score: savedScore, feedback: savedFeedback });
   }
-  const recorded = await scoreWritten(await learnerId(), hardcoreText, problemId, savedScore);
+  const recorded = await scoreWritten(await currentLearner(), hardcoreText, problemId, savedScore);
   if (!recorded.ok) {
     return NextResponse.json({
       score: savedScore,

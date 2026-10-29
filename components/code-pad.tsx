@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { runPython } from "@/lib/pyodide-runner";
 
@@ -26,7 +26,17 @@ export function CodePad({
   const [running, setRunning] = useState(false);
   const [output, setOutput] = useState("");
   const [runError, setRunError] = useState("");
+  const [hardcore, setHardcore] = useState(false);
   const python = language === "python" || language === "py";
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const sync = () => setHardcore(root.classList.contains("hardcore"));
+    sync();
+    const observer = new MutationObserver(sync);
+    observer.observe(root, { attributes: true, attributeFilter: ["class"] });
+    return () => observer.disconnect();
+  }, []);
 
   return (
     <div className="flex flex-col gap-3">
@@ -34,7 +44,7 @@ export function CodePad({
         <MonacoEditor
           height="240px"
           language={editorLanguage(language)}
-          theme="vs"
+          theme={hardcore ? "vs-dark" : "vs"}
           value={value}
           onChange={(next) => onChange(next ?? "")}
           options={{ minimap: { enabled: false }, fontSize: 14, scrollBeyondLastLine: false, readOnly: disabled }}

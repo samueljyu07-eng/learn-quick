@@ -78,23 +78,26 @@ New problem types are added in `lib/problems/registry.ts`.
 
 ## What is stored on this computer
 
-Nothing is in a database yet.
+Accounts use Supabase once the keys and `supabase/schema.sql` are in place. Until then, and whenever you are signed out, data stays on this computer.
 
 | Data | Where |
 | --- | --- |
 | The current material and goal | `sessionStorage`, key `learn-quick-session` |
-| My definitions | `localStorage`, key `learn-quick-library` |
+| My definitions | `localStorage`, key `learn-quick-library`. Copied onto the signed-in account |
 | Familiarity for a material | `localStorage`, key `learn-quick-familiarity` |
 | The timer | `localStorage`, key `learn-quick-timer` |
 | The score from the last submit | `sessionStorage`, key `learn-quick-results` |
 | Extracted terms, the summary, and practice problems | `sessionStorage` |
-| Hardcore deadlines and locks | On the server, in `data/hardcore.json`, tied to a private browser cookie |
+| Hardcore deadlines and locks | `data/hardcore.json` for a browser without an account. On the signed-in account after Supabase is connected |
+| Points | On the signed-in account |
 
 ## What's next
 
 Build these one phase at a time. Do not start the next phase until the current one is tested.
 
-**Phase C. Accounts, points, and a contribution tracker.** Add Supabase for email sign-in and a database. Move the hardcore locks, deadlines, and My definitions off this computer and onto the signed-in person. Award points only for a passing session, with a higher multiplier when the material is less familiar. Repeats earn less, and there is a daily cap. Show a year-style calendar of points, the current streak, and the total. The point numbers go in `config/study.ts`.
+**Phase C. Accounts, points, and a contribution tracker.** Email and password sign-in through Supabase. You can still study without an account. After sign-in, My definitions on this computer are copied to the account, and hardcore locks and deadlines are kept there too. A passing session earns points: 10, up to 20 when the material is unfamiliar, half of that on a repeat, and no more than 100 in a day. **Points** shows the year, the streak, and the total. The numbers live in `config/study.ts`.
+
+To turn accounts on, paste `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` into `.env.local`, run `supabase/schema.sql` in the Supabase SQL editor, and restart the app. The service role key stays on the server. It is what writes locks and points, so the public anon key cannot edit them.
 
 **Phase D. Leaderboard.** All time, this month, and by university. People opt in with a display name. Email addresses stay hidden. A university can be verified from the email domain when that is possible.
 

@@ -1,5 +1,4 @@
-// Tune the study timer and practice scores here.
-// A later phase will add the points numbers to this same file.
+// Tune the study timer, practice scores, and points here.
 
 export const STUDY = {
   readingWordsPerMinute: 200,
@@ -12,4 +11,11 @@ export const STUDY = {
   passingScore: 70,
   // A rewritten upload at or above this overlap is treated as the same material.
   nearDuplicateSimilarity: 0.9,
+  // A passing session earns basePoints. Unfamiliar material can raise that as high as
+  // basePoints * (1 + unfamiliarBonus). A later pass of the same material is multiplied
+  // by repeatFactor. The calendar day cannot go past dailyPointCap.
+  basePoints: 10,
+  unfamiliarBonus: 1,
+  repeatFactor: 0.5,
+  dailyPointCap: 100,
 } as const;

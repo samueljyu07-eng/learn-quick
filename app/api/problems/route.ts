@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { rememberProblems, storedProblems } from "@/lib/hardcore-store";
-import { learnerId } from "@/lib/learner-id";
+import { currentLearner } from "@/lib/learner";
 import { buildContext, outcomeFor } from "@/lib/learning-result";
 import { MAX_MATERIAL_CHARS } from "@/lib/limits";
 import { parseProblemSet } from "@/lib/problems/parse";
@@ -82,7 +82,7 @@ export async function POST(request: Request) {
   const plan = problemModule(outcome);
   const hardcoreText = typeof record?.hardcoreText === "string" ? record.hardcoreText.slice(0, MAX_MATERIAL_CHARS) : "";
   if (hardcoreText.trim()) {
-    const existing = await storedProblems(await learnerId(), hardcoreText);
+    const existing = await storedProblems(await currentLearner(), hardcoreText);
     if (existing) return NextResponse.json(existing);
   }
   const prompt = [
@@ -120,7 +120,7 @@ export async function POST(request: Request) {
   }
 
   if (!hardcoreText.trim()) return NextResponse.json(set);
-  const official = await rememberProblems(await learnerId(), hardcoreText, set);
+  const official = await rememberProblems(await currentLearner(), hardcoreText, set);
   return NextResponse.json(official);
 }
 

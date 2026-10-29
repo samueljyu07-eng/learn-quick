@@ -18,12 +18,12 @@ export function ProgressBar({
   stepTwoEnabled?: boolean;
 }) {
   return (
-    <nav aria-label="Progress" className="relative mb-8">
-      <span className="absolute top-4 right-[10%] left-[10%] h-px bg-line" aria-hidden="true" />
-      <ol className="relative grid grid-cols-5">
+    <nav aria-label="Progress" className="mb-8">
+      <ol className="grid grid-cols-5">
         {STEPS.map((step) => {
           const complete = step.id <= completedThrough;
           const current = step.id === activeStep;
+          const marked = complete || current;
           const href =
             step.id === 1
               ? "/"
@@ -33,24 +33,20 @@ export function ProgressBar({
                   ? "/explain"
                   : step.id === 4 && stepTwoEnabled
                     ? "/summary"
-                    : null;
+                    : step.id === 5 && stepTwoEnabled
+                      ? "/check"
+                      : null;
           const body = (
             <>
-              <span
-                className={`relative z-10 flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold ${
-                  complete || current ? "bg-accent text-white" : "border border-line bg-card text-muted"
-                }`}
-              >
-                {complete ? <CheckIcon /> : step.id}
+              <span className={`step-num${current ? " step-num-current" : ""}`}>
+                {step.id}
+                {current ? <span className="sr-only"> current</span> : null}
                 {complete ? <span className="sr-only"> completed</span> : null}
               </span>
-              <span
-                className={`mt-2 text-[11px] leading-tight sm:text-xs ${
-                  current ? "font-semibold text-ink" : "text-muted"
-                }`}
-              >
-                {step.label}
+              <span className="step-check" aria-hidden="true">
+                {marked ? <CheckIcon /> : null}
               </span>
+              <span className={`step-label${current ? " step-label-current" : ""}`}>{step.label}</span>
             </>
           );
           return (

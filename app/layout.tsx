@@ -1,24 +1,13 @@
 import type { Metadata } from "next";
-import { Literata, Share_Tech_Mono, Source_Sans_3 } from "next/font/google";
+import { Share_Tech_Mono } from "next/font/google";
 
+import { AccountProvider } from "@/components/account-provider";
 import { FamiliarityLoader } from "@/components/familiarity-loader";
 import { HardcoreTheme } from "@/components/hardcore-theme";
 import { LearningLoader } from "@/components/learning-loader";
 import { SessionProvider } from "@/components/session-provider";
-import { StudyTimer } from "@/components/study-timer";
+import { StudyShell } from "@/components/side-nav";
 import "./globals.css";
-
-const sourceSans = Source_Sans_3({
-  subsets: ["latin"],
-  variable: "--font-source-sans",
-  display: "swap",
-});
-
-const literata = Literata({
-  subsets: ["latin"],
-  variable: "--font-literata",
-  display: "swap",
-});
 
 const led = Share_Tech_Mono({
   weight: "400",
@@ -34,14 +23,15 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${sourceSans.variable} ${literata.variable} ${led.variable} h-full antialiased`}>
+    <html lang="en" className={`${led.variable} h-full`}>
       <body className="min-h-full bg-paper font-sans text-ink">
         <SessionProvider>
-          <HardcoreTheme />
-          <FamiliarityLoader />
-          <LearningLoader />
-          <StudyTimer />
-          {children}
+          <AccountProvider>
+            <HardcoreTheme />
+            <FamiliarityLoader />
+            <LearningLoader />
+            <StudyShell>{children}</StudyShell>
+          </AccountProvider>
         </SessionProvider>
       </body>
     </html>

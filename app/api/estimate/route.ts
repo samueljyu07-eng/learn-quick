@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { parseDifficulty } from "@/lib/difficulty-result";
 import { beginRun } from "@/lib/hardcore-store";
-import { learnerId } from "@/lib/learner-id";
+import { currentLearner } from "@/lib/learner";
 import { MAX_MATERIAL_CHARS } from "@/lib/limits";
 import { objectiveTitle } from "@/lib/objectives";
 import { wordCount } from "@/lib/estimate-result";
@@ -166,7 +166,7 @@ export async function POST(request: Request) {
     difficulty: difficulty.difficulty,
   }).minutes;
   const hardcore = await beginRun({
-    learnerId: await learnerId(),
+    learner: await currentLearner(),
     text: materialText,
     title: typeof record.materialTitle === "string" ? record.materialTitle : "",
     minutes,

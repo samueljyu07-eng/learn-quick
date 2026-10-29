@@ -2,12 +2,14 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 
+import { useAccount } from "@/components/account-provider";
 import { ProgressBar } from "@/components/progress-bar";
 import { useSession } from "@/components/session-provider";
 import { SiteHeader } from "@/components/site-header";
 import { STUDY } from "@/config/study";
+import { ensureFamiliarity } from "@/lib/familiarity-store";
 import { clearSessionResult, readSessionResult } from "@/lib/session-result";
 
 export function ResultsView() {
@@ -60,6 +62,7 @@ export function ResultsView() {
             {result.hardcore === "failed" ? (
               <p className="mt-3 text-sm leading-relaxed text-danger">Hardcore mode: this material is locked.</p>
             ) : null}
+            <PointsLine passed={result.passed} savedAt={result.savedAt} />
           </section>
           <ol className="flex flex-col gap-4">
             {result.problems.map((problem, index) => {
@@ -76,17 +79,84 @@ export function ResultsView() {
               );
             })}
           </ol>
-          <button
-            type="button"
-            onClick={startOver}
-            className="w-fit rounded-xl bg-accent px-5 py-3 font-semibold text-white"
-          >
-            Start over
-          </button>
+          <div className="flex flex-wrap gap-3">
+            <Link href="/check" className="rounded-xl bg-accent px-5 py-3 font-semibold text-white">
+              Go to check
+            </Link>
+            <button
+              type="button"
+              onClick={startOver}
+              className="rounded-xl border border-line bg-card px-5 py-3 font-semibold text-ink"
+            >
+              Start over
+            </button>
+          </div>
         </div>
       )}
     </div>
   );
+}
+
+function PointsLine({ passed, savedAt }: { passed: boolean; savedAt: string }) {
+  const account = useAccount();
+  const { session } = useSession();
+  const [line, setLine] = useState("");
+
+  useEffect(() => {
+    if (!passed || !account.ready || !session || session.savedAt !== savedAt) return;
+    if (!account.userId) {
+      setLine("Sign in to keep points for this pass.");
+      return;
+    }
+    let cancel = false;
+    void (async () => {
+      let familiarity = 1;
+      try {
+        familiarity = (await ensureFamiliarity(session)).familiarity;
+      } catch {
+        familiarity = 1;
+      }
+      let response: Response;
+      try {
+        response = await fetch("/api/points", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            text: session.material.text,
+            savedAt,
+            passed: true,
+            familiarity,
+            day: new Date().toLocaleDateString("en-CA"),
+          }),
+        });
+      } catch {
+        if (!cancel) setLine("Points couldn't be saved. Try again.");
+        return;
+      }
+      const payload = (await response.json().catch(() => null)) as {
+        points?: number;
+        error?: string;
+        repeat?: boolean;
+        capped?: boolean;
+      } | null;
+      if (cancel) return;
+      if (!response.ok || !payload || typeof payload.points !== "number") {
+        setLine(payload?.error || "Points couldn't be saved.");
+        return;
+      }
+      if (payload.points === 0 && payload.capped) {
+        setLine(`You reached today's ${STUDY.dailyPointCap} point cap.`);
+        return;
+      }
+      setLine(payload.repeat ? `Repeat pass. You earned ${payload.points} points.` : `You earned ${payload.points} points.`);
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, [account.ready, account.userId, passed, savedAt, session]);
+
+  if (!passed || !line) return null;
+  return <p className="mt-3 text-sm leading-relaxed text-ink">{line}</p>;
 }
 
 function subscribeResults(listener: () => void) {

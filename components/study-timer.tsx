@@ -66,13 +66,20 @@ export function StudyTimer() {
     requestEstimate(session, summary, familiarity.record.unfamiliarCount, key);
   }, [hydrated, session, summary, key, familiarity.record, timer.savedAt, timer.status]);
 
-  if (!hydrated || !session) return null;
+  if (!hydrated) return <p className="text-sm leading-relaxed text-muted">Loading the timer…</p>;
+  if (!session) {
+    return (
+      <p className="text-sm leading-relaxed text-muted">
+        The timer starts after step 1 is saved and the summary is ready.
+      </p>
+    );
+  }
 
   if (!summary || timer.savedAt !== key || timer.status === "hidden") {
     return (
       <TimerShell>
         {!summary && learning.status === "error" && learning.savedAt === session.savedAt ? (
-          <section className="w-56 rounded-2xl border border-line bg-card p-3 shadow-sm">
+          <section className="w-full rounded-2xl border border-line bg-card p-3 shadow-sm">
             <p className="text-sm leading-relaxed text-muted">Study time starts after your summary is ready.</p>
             <Link href="/explain" className="mt-2 inline-block text-sm font-semibold text-accent underline">
               Open the explanation
@@ -120,17 +127,12 @@ export function StudyTimer() {
 }
 
 function TimerShell({ children }: { children: ReactNode }) {
-  return (
-    <>
-      <div className="h-48 xl:hidden" aria-hidden="true" />
-      <div className="fixed top-3 right-3 z-40 flex w-56 flex-col items-end gap-2">{children}</div>
-    </>
-  );
+  return <div className="flex w-full flex-col gap-2">{children}</div>;
 }
 
 function LoadingCard({ message = "Rating how hard this summary is…" }: { message?: string }) {
   return (
-    <section className="w-44 rounded-2xl border border-line bg-card p-3 shadow-sm" aria-live="polite">
+    <section className="w-full rounded-2xl border border-line bg-card p-3 shadow-sm" aria-live="polite">
       <p className="text-sm leading-relaxed text-muted">{message}</p>
     </section>
   );
@@ -138,7 +140,7 @@ function LoadingCard({ message = "Rating how hard this summary is…" }: { messa
 
 function ErrorCard({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
-    <section className="w-56 rounded-2xl border border-line bg-card p-3 shadow-sm" role="alert">
+    <section className="w-full rounded-2xl border border-line bg-card p-3 shadow-sm" role="alert">
       <p className="text-sm leading-relaxed text-danger">{message}</p>
       <button
         type="button"
@@ -168,7 +170,7 @@ function HardcoreCard({ reasoning, onRetry }: { reasoning: string; onRetry: () =
 
   return (
     <>
-      <section className="relative w-56 rounded-2xl border border-line bg-card p-3 shadow-sm">
+      <section className="relative w-full rounded-2xl border border-line bg-card p-3 shadow-sm">
         <p className="text-center text-[11px] font-semibold tracking-[0.22em] text-accent uppercase">Hardcore</p>
         <div role="timer" aria-label={hardcoreLabel(state.status, remaining)}>
           <BombClock
@@ -185,17 +187,17 @@ function HardcoreCard({ reasoning, onRetry }: { reasoning: string; onRetry: () =
         />
       </section>
       {waiting ? (
-        <p className="w-56 rounded-2xl border border-line bg-warn-bg p-3 text-sm leading-relaxed text-warn" role="status">
+        <p className="w-full rounded-2xl border border-line bg-warn-bg p-3 text-sm leading-relaxed text-warn" role="status">
           Time’s up. Checking whether this material locks…
         </p>
       ) : null}
       {failed ? (
-        <p className="w-56 rounded-2xl border border-danger bg-danger-bg p-3 text-sm leading-relaxed text-danger" role="status">
+        <p className="w-full rounded-2xl border border-danger bg-danger-bg p-3 text-sm leading-relaxed text-danger" role="status">
           FAILED. This material is locked.
         </p>
       ) : null}
       {state.status === "passed" ? (
-        <p className="w-56 rounded-2xl border border-line bg-accent-soft p-3 text-sm leading-relaxed text-accent" role="status">
+        <p className="w-full rounded-2xl border border-line bg-accent-soft p-3 text-sm leading-relaxed text-accent" role="status">
           Passed{state.average != null ? ` with an average of ${state.average}` : ""} before the timer ended.
         </p>
       ) : null}
@@ -222,7 +224,7 @@ function ReasonTip({
       {show ? (
         <p
           role="tooltip"
-          className="absolute top-full right-0 z-50 mt-1 w-64 rounded-xl border border-line bg-card p-3 text-sm leading-relaxed whitespace-pre-line text-ink shadow-sm"
+          className="relative z-50 mt-1 w-full rounded-xl border border-line bg-card p-3 text-sm leading-relaxed whitespace-pre-line text-ink shadow-sm"
         >
           {reasoning}
         </p>
@@ -247,7 +249,7 @@ function TimerCard() {
 
   return (
     <>
-      <section className="relative w-44 rounded-2xl border border-line bg-card p-3 shadow-sm">
+      <section className="relative w-full rounded-2xl border border-line bg-card p-3 shadow-sm">
         <div className="flex items-center gap-2" role="timer" aria-label={timerLabel(remaining, timer.running, timer.stopped)}>
           <ProgressRing ratio={ratio} />
           <div>
@@ -319,7 +321,7 @@ function TimerCard() {
       </section>
 
       {timer.timeUp ? (
-        <div role="status" className="w-56 rounded-2xl border border-line bg-warn-bg p-3 text-warn shadow-sm">
+        <div role="status" className="w-full rounded-2xl border border-line bg-warn-bg p-3 text-warn shadow-sm">
           <p className="text-sm leading-relaxed">Time’s up. You can keep going, or stop here.</p>
           <div className="mt-3 flex flex-col gap-2">
             <button

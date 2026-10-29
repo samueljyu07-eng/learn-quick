@@ -4,11 +4,13 @@ import path from "node:path";
 
 import { STUDY } from "@/config/study";
 import type { HardcoreSnapshot } from "@/lib/hardcore-types";
+import type { Learner } from "@/lib/learner";
+import { learnerId } from "@/lib/learner-id";
 import { isNearDuplicate, lockHashSource, normalizeForLock } from "@/lib/lock-text";
 import type { ProblemSet } from "@/lib/problems/types";
+import { supabaseService } from "@/lib/supabase/server";
 
-// Local stand-in for the Phase C tables. The deadline and the lock live here,
-// not in the browser. A later phase can swap this file for Postgres.
+// Signed-out runs stay in data/hardcore.json. Signed-in runs are stored in Supabase.
 
 type Run = {
   learnerId: string;
@@ -48,11 +50,12 @@ const FILE = path.join(process.cwd(), "data", "hardcore.json");
 
 let chain: Promise<void> = Promise.resolve();
 
-function change<T>(mutate: (store: Store) => T): Promise<T> {
+function change<T>(learner: Learner, mutate: (store: Store) => T): Promise<T> {
   const run = chain.then(async () => {
-    const store = await readStore();
+    const store = learner.account ? await readAccountStore(learner.id) : await readStore();
     const result = mutate(store);
-    await writeStore(store);
+    if (learner.account) await writeAccountStore(learner.id, store);
+    else await writeStore(store);
     return result;
   });
   chain = run.then(
@@ -62,8 +65,17 @@ function change<T>(mutate: (store: Store) => T): Promise<T> {
   return run;
 }
 
-export function inspectMaterial(learnerId: string, text: string) {
-  return change((store) => {
+export async function adoptAccountHardcore(userId: string) {
+  const supabase = supabaseService();
+  if (!supabase) return;
+  const { data, error } = await supabase.from("hardcore_state").select("user_id").eq("user_id", userId).maybeSingle();
+  if (error || data) return;
+  await change({ id: userId, account: true }, () => undefined);
+}
+
+export function inspectMaterial(learner: Learner, text: string) {
+  const learnerId = learner.id;
+  return change(learner, (store) => {
     const now = Date.now();
     expire(store, learnerId, now);
     const normalized = normalizeForLock(text);
@@ -78,30 +90,32 @@ export function inspectMaterial(learnerId: string, text: string) {
   });
 }
 
-export function listLockTitles(learnerId: string) {
-  return change((store) => {
+export function listLockTitles(learner: Learner) {
+  const learnerId = learner.id;
+  return change(learner, (store) => {
     expire(store, learnerId, Date.now());
     return store.locks.filter((lock) => lock.learnerId === learnerId).map((lock) => lock.title);
   });
 }
 
-export function beginRun(input: { learnerId: string; text: string; title: string; minutes: number }) {
-  return change((store) => {
+export function beginRun(input: { learner: Learner; text: string; title: string; minutes: number }) {
+  return change(input.learner, (store) => {
+    const learnerId = input.learner.id;
     const now = Date.now();
-    expire(store, input.learnerId, now);
+    expire(store, learnerId, now);
     const normalized = normalizeForLock(input.text);
     const hash = hashNormalized(normalized);
-    const existing = findRun(store, input.learnerId, normalized);
+    const existing = findRun(store, learnerId, normalized);
     if (existing) {
       if (existing.status === "failed") ensureLock(store, existing, now);
       adoptPending(store, existing);
-      return viewRun(existing, findLock(store, input.learnerId, normalized) != null || existing.status === "failed", now);
+      return viewRun(existing, findLock(store, learnerId, normalized) != null || existing.status === "failed", now);
     }
-    if (findLock(store, input.learnerId, normalized)) {
+    if (findLock(store, learnerId, normalized)) {
       return failedView(now);
     }
     const run: Run = {
-      learnerId: input.learnerId,
+      learnerId: learnerId,
       hash,
       title: deriveTitle(input.title, input.text),
       normalized,
@@ -118,8 +132,9 @@ export function beginRun(input: { learnerId: string; text: string; title: string
   });
 }
 
-export function storedProblems(learnerId: string, text: string) {
-  return change((store) => {
+export function storedProblems(learner: Learner, text: string) {
+  const learnerId = learner.id;
+  return change(learner, (store) => {
     const now = Date.now();
     expire(store, learnerId, now);
     const normalized = normalizeForLock(text);
@@ -127,8 +142,9 @@ export function storedProblems(learnerId: string, text: string) {
   });
 }
 
-export function rememberProblems(learnerId: string, text: string, problems: ProblemSet) {
-  return change((store) => {
+export function rememberProblems(learner: Learner, text: string, problems: ProblemSet) {
+  const learnerId = learner.id;
+  return change(learner, (store) => {
     const now = Date.now();
     expire(store, learnerId, now);
     const normalized = normalizeForLock(text);
@@ -145,8 +161,9 @@ export function rememberProblems(learnerId: string, text: string, problems: Prob
   });
 }
 
-export function scoreChoice(learnerId: string, text: string, problemId: string, choice: string) {
-  return change((store) => {
+export function scoreChoice(learner: Learner, text: string, problemId: string, choice: string) {
+  const learnerId = learner.id;
+  return change(learner, (store) => {
     const now = Date.now();
     expire(store, learnerId, now);
     const run = openRun(store, learnerId, text, now);
@@ -175,8 +192,9 @@ export function scoreChoice(learnerId: string, text: string, problemId: string, 
   });
 }
 
-export function scoreWritten(learnerId: string, text: string, problemId: string, score: number) {
-  return change((store) => {
+export function scoreWritten(learner: Learner, text: string, problemId: string, score: number) {
+  const learnerId = learner.id;
+  return change(learner, (store) => {
     const now = Date.now();
     expire(store, learnerId, now);
     const run = openRun(store, learnerId, text, now);
@@ -197,8 +215,9 @@ export function scoreWritten(learnerId: string, text: string, problemId: string,
   });
 }
 
-export function finishAttempt(learnerId: string, text: string) {
-  return change((store) => {
+export function finishAttempt(learner: Learner, text: string) {
+  const learnerId = learner.id;
+  return change(learner, (store) => {
     const now = Date.now();
     expire(store, learnerId, now);
     const normalized = normalizeForLock(text);
@@ -415,6 +434,56 @@ function deriveTitle(title: string, text: string) {
 
 function hashNormalized(normalized: string) {
   return createHash("sha256").update(lockHashSource(normalized)).digest("hex");
+}
+
+async function readAccountStore(userId: string): Promise<Store> {
+  const supabase = supabaseService();
+  if (!supabase) return { runs: [], locks: [], pending: [] };
+  const { data, error } = await supabase
+    .from("hardcore_state")
+    .select("runs, locks, pending")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) {
+    throw new Error("Hardcore mode couldn't read your account. Run supabase/schema.sql in the Supabase SQL editor, then try again.");
+  }
+  if (data) return sanitizeStore(data);
+  return importCookieStore(userId);
+}
+
+async function writeAccountStore(userId: string, store: Store) {
+  const supabase = supabaseService();
+  if (!supabase) return;
+  const { error } = await supabase.from("hardcore_state").upsert({
+    user_id: userId,
+    runs: store.runs,
+    locks: store.locks,
+    pending: store.pending,
+    updated_at: new Date().toISOString(),
+  });
+  if (error) {
+    throw new Error("Hardcore mode couldn't save your account. Run supabase/schema.sql in the Supabase SQL editor, then try again.");
+  }
+}
+
+async function importCookieStore(userId: string): Promise<Store> {
+  const cookieId = await learnerId();
+  const file = await readStore();
+  const take = <T extends { learnerId: string }>(items: T[]) =>
+    items.filter((item) => item.learnerId === cookieId).map((item) => ({ ...item, learnerId: userId }));
+  return {
+    runs: take(file.runs),
+    locks: take(file.locks),
+    pending: take(file.pending),
+  };
+}
+
+function sanitizeStore(value: { runs?: unknown; locks?: unknown; pending?: unknown }): Store {
+  return {
+    runs: Array.isArray(value.runs) ? (value.runs as Run[]) : [],
+    locks: Array.isArray(value.locks) ? (value.locks as Lock[]) : [],
+    pending: Array.isArray(value.pending) ? (value.pending as Pending[]) : [],
+  };
 }
 
 async function readStore(): Promise<Store> {

@@ -13,6 +13,7 @@ export type SavedDefinition = {
 };
 
 const listeners = new Set<() => void>();
+const EMPTY: SavedDefinition[] = [];
 let cachedRaw: string | null | undefined;
 let cachedItems: SavedDefinition[] = [];
 let memoryOnly: SavedDefinition[] | null = null;
@@ -43,7 +44,7 @@ function isSavedDefinition(value: unknown): value is SavedDefinition {
 
 function readItems(): SavedDefinition[] {
   if (memoryOnly) return memoryOnly;
-  if (typeof window === "undefined") return [];
+  if (typeof window === "undefined") return EMPTY;
 
   let raw: string | null = null;
   try {
@@ -91,12 +92,24 @@ function sameTerm(item: SavedDefinition, term: string, source: string) {
   return item.term.trim().toLocaleLowerCase() === term.trim().toLocaleLowerCase() && item.source === source;
 }
 
+export function librarySnapshot() {
+  return readItems();
+}
+
+export function replaceLibrary(next: SavedDefinition[]) {
+  writeItems(next.filter(isSavedDefinition));
+}
+
+export function subscribeLibrary(listener: () => void) {
+  return subscribe(listener);
+}
+
 export function currentLibraryTerms() {
   return readItems().map((item) => item.term);
 }
 
 export function useLibrary() {
-  const items = useSyncExternalStore(subscribe, readItems, () => []);
+  const items = useSyncExternalStore(subscribe, readItems, () => EMPTY);
   const storageWarning = useSyncExternalStore(subscribe, readWarning, () => "");
 
   return {
