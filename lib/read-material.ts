@@ -4,7 +4,14 @@ import { isIP } from "node:net";
 import { extractText } from "unpdf";
 
 import { extractHtmlTitle, htmlToText } from "@/lib/html-text";
-import { MAX_FETCH_BYTES, MAX_UPLOAD_BYTES, limitMaterial } from "@/lib/limits";
+import {
+  MAX_FETCH_BYTES,
+  MAX_UPLOAD_FILES,
+  isAllowedUpload,
+  limitMaterial,
+  uploadBatchMessage,
+  uploadFileMessage,
+} from "@/lib/limits";
 import type { ExtractedMaterial } from "@/lib/types";
 
 export class MaterialError extends Error {
@@ -22,25 +29,85 @@ const BLOCKED_HOSTS = new Set([
 ]);
 
 export async function extractUploadedFile(file: File): Promise<ExtractedMaterial> {
-  if (file.size === 0) {
-    throw new MaterialError("That file is empty. Choose a file that has some text in it.");
+  return extractUploadedFiles([file]);
+}
+
+export async function extractUploadedFiles(files: File[]): Promise<ExtractedMaterial> {
+  if (files.length === 0) {
+    throw new MaterialError("Choose a .pdf, .txt, .md, or .html file to upload.");
   }
-  if (file.size > MAX_UPLOAD_BYTES) {
-    throw new MaterialError("That file is over 10 MB. Try a smaller file, or paste the part you need.");
+  if (files.length > MAX_UPLOAD_FILES) {
+    throw new MaterialError("Upload up to 5 files.");
   }
 
+  let total = 0;
+  for (const file of files) {
+    const problem = uploadFileMessage(file);
+    if (problem) throw new MaterialError(problem);
+    total += file.size;
+  }
+  const tooBig = uploadBatchMessage(files.length, total);
+  if (tooBig) throw new MaterialError(tooBig);
+
+  const parts: string[] = [];
+  const names: string[] = [];
+  let title = "";
+  for (const file of files) {
+    const read = await readUploadText(file);
+    names.push(read.fileName);
+    if (!title && read.title) title = read.title;
+    parts.push(files.length > 1 ? `${read.fileName}\n\n${read.text}` : read.text);
+  }
+
+  return finish(parts.join("\n\n"), "file", {
+    fileName: names.join(", "),
+    url: "",
+    title,
+  });
+}
+
+async function readUploadText(file: File): Promise<{ fileName: string; title: string; text: string }> {
   const fileName = file.name || "upload";
-  const lower = fileName.toLowerCase();
-  const isPdf = lower.endsWith(".pdf") || file.type === "application/pdf";
-  const isTxt = lower.endsWith(".txt") || file.type === "text/plain";
-
-  if (!isPdf && !isTxt) {
-    throw new MaterialError("Please upload a .pdf or .txt file.");
+  const kind = uploadKind(fileName, file.type);
+  if (!kind || !isAllowedUpload(fileName, file.type)) {
+    throw new MaterialError("Please upload a .pdf, .txt, .md, or .html file.");
   }
 
   const bytes = new Uint8Array(await file.arrayBuffer());
-  const text = isPdf ? await pdfToText(bytes) : decodeText(bytes);
-  return finish(text, "file", { fileName, url: "", title: "" });
+  if (kind === "pdf") {
+    const text = (await pdfToText(bytes)).trim();
+    assertReadable(text, fileName);
+    return { fileName, title: "", text };
+  }
+  if (kind === "html") {
+    const raw = decodeText(bytes);
+    const text = htmlToText(raw).trim();
+    assertReadable(text, fileName);
+    return { fileName, title: extractHtmlTitle(raw), text };
+  }
+  const text = decodeText(bytes).trim();
+  assertReadable(text, fileName);
+  return { fileName, title: "", text };
+}
+
+function assertReadable(text: string, fileName: string) {
+  if (!text || looksBinary(text)) {
+    throw new MaterialError(
+      `We couldn't find readable text in ${fileName}. If it's a scanned PDF (a picture of pages), paste the text instead.`,
+    );
+  }
+}
+
+function uploadKind(fileName: string, mime: string): "pdf" | "html" | "text" | null {
+  const lower = fileName.toLowerCase();
+  const extension = lower.includes(".") ? lower.slice(lower.lastIndexOf(".")) : "";
+  if (extension === ".pdf") return "pdf";
+  if (extension === ".html" || extension === ".htm") return "html";
+  if (extension === ".txt" || extension === ".md" || extension === ".markdown") return "text";
+  if (mime === "application/pdf") return "pdf";
+  if (mime === "text/html") return "html";
+  if (mime === "text/plain" || mime === "text/markdown" || mime === "text/x-markdown") return "text";
+  return null;
 }
 
 export async function extractFromUrl(rawUrl: string): Promise<ExtractedMaterial> {

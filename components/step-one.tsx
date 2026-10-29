@@ -2,14 +2,22 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
+import Link from "next/link";
+
+import { FloppyIcon } from "@/components/aero-icons";
+import { setHardcoreDraft, useHardcoreDraft } from "@/components/hardcore-theme";
 import { ProgressBar } from "@/components/progress-bar";
+import { SiteHeader } from "@/components/site-header";
 import { useSession } from "@/components/session-provider";
 import {
   MAX_MATERIAL_CHARS,
   MAX_SHORT_FIELD_CHARS,
   MAX_TASK_CHARS,
-  MAX_UPLOAD_BYTES,
+  MAX_UPLOAD_FILES,
+  MAX_UPLOAD_TOTAL_BYTES,
   limitMaterial,
+  uploadBatchMessage,
+  uploadFileMessage,
 } from "@/lib/limits";
 import { OBJECTIVES, objectiveTitle } from "@/lib/objectives";
 import type { ExtractedMaterial, LearnSession, MaterialSource, ObjectiveKind } from "@/lib/types";
@@ -29,35 +37,59 @@ export function StepOne() {
   const [source, setSource] = useState<MaterialSource>("text");
   const [text, setText] = useState("");
   const [url, setUrl] = useState("");
-  const [file, setFile] = useState<File | null>(null);
-  const [fileName, setFileName] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
+  const [keepSavedFile, setKeepSavedFile] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
   const [objective, setObjective] = useState<ObjectiveKind | null>(null);
   const [testTopic, setTestTopic] = useState("");
   const [testFormat, setTestFormat] = useState("");
   const [taskDescription, setTaskDescription] = useState("");
+  const [hardcore, setHardcore] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const errorRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const showSaved = Boolean(session) && !editing;
+  const hardcoreDraft = useHardcoreDraft();
 
   useEffect(() => {
     if (!error) return;
     errorRef.current?.focus();
   }, [error]);
 
-  const showSaved = Boolean(session) && !editing;
+  useEffect(() => {
+    return () => setHardcoreDraft(null);
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated || showSaved) {
+      setHardcoreDraft(null);
+      return;
+    }
+    setHardcoreDraft(hardcore);
+  }, [hydrated, showSaved, hardcore]);
+
+  useEffect(() => {
+    if (!hydrated || showSaved || typeof hardcoreDraft !== "boolean") return;
+    setHardcore((current) => (current === hardcoreDraft ? current : hardcoreDraft));
+    setConfirmOpen(false);
+  }, [hydrated, showSaved, hardcoreDraft]);
 
   function beginEdit() {
     if (!session) return;
     setSource(session.material.source);
     setText(session.material.source === "text" ? session.material.text : "");
     setUrl(session.material.url);
-    setFile(null);
-    setFileName(session.material.fileName);
+    setFiles([]);
+    setKeepSavedFile(session.material.source === "file");
+    setDragOver(false);
     setObjective(session.objective.kind);
     setTestTopic(session.objective.testTopic);
     setTestFormat(session.objective.testFormat);
     setTaskDescription(session.objective.taskDescription);
+    setHardcore(session.hardcore === true);
     setError("");
     setEditing(true);
   }
@@ -66,12 +98,15 @@ export function StepOne() {
     setSource("text");
     setText("");
     setUrl("");
-    setFile(null);
-    setFileName("");
+    setFiles([]);
+    setKeepSavedFile(false);
+    setDragOver(false);
     setObjective(null);
     setTestTopic("");
     setTestFormat("");
     setTaskDescription("");
+    setHardcore(false);
+    setConfirmOpen(false);
     setError("");
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
@@ -82,45 +117,54 @@ export function StepOne() {
     resetForm();
   }
 
-  function onFileChange(next: File | null) {
+  function addFiles(list: FileList | File[]) {
+    const incoming = Array.from(list);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    if (incoming.length === 0) return;
+
+    for (const file of incoming) {
+      const problem = uploadFileMessage(file);
+      if (problem) {
+        setError(problem);
+        return;
+      }
+    }
+
+    const fresh = incoming.filter((file) => !files.some((kept) => sameFile(kept, file)));
+    if (fresh.length === 0) {
+      setError("That file is already in the list.");
+      return;
+    }
+
+    const savedCount = keepSavedFile ? 1 : 0;
+    const countError = uploadBatchMessage(files.length + fresh.length + savedCount, 0);
+    if (files.length + fresh.length + savedCount > MAX_UPLOAD_FILES) {
+      setError(countError ?? "Upload up to 5 files.");
+      return;
+    }
+
+    const totalBytes = [...files, ...fresh].reduce((sum, file) => sum + file.size, 0);
+    const sizeError = uploadBatchMessage(files.length + fresh.length, totalBytes);
+    if (sizeError && totalBytes > MAX_UPLOAD_TOTAL_BYTES) {
+      setError(sizeError);
+      return;
+    }
+
     setError("");
-    if (!next) {
-      setFile(null);
-      return;
-    }
-    const lower = next.name.toLowerCase();
-    const allowed =
-      lower.endsWith(".pdf") ||
-      lower.endsWith(".txt") ||
-      next.type === "application/pdf" ||
-      next.type === "text/plain";
-    if (!allowed) {
-      setFile(null);
-      setFileName("");
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      setError("Please upload a .pdf or .txt file.");
-      return;
-    }
-    if (next.size > MAX_UPLOAD_BYTES) {
-      setFile(null);
-      setFileName("");
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      setError("That file is over 10 MB. Try a smaller file, or paste the part you need.");
-      return;
-    }
-    if (next.size === 0) {
-      setFile(null);
-      setFileName("");
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      setError("That file is empty. Choose a file that has some text in it.");
-      return;
-    }
-    setFile(next);
-    setFileName(next.name);
+    setFiles([...files, ...fresh]);
+  }
+
+  function removeFile(index: number) {
+    setFiles((current) => current.filter((_, item) => item !== index));
+    setError("");
   }
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    await save(false);
+  }
+
+  async function save(confirmed: boolean) {
     const kind = objective;
     if (!kind) {
       setError("Choose an objective so later steps know what to focus on.");
@@ -142,8 +186,8 @@ export function StepOne() {
       setError("Paste some text first. An empty box doesn't give Learn Quick anything to work with.");
       return;
     }
-    if (source === "file" && !file && session?.material.source !== "file") {
-      setError("Choose a PDF or TXT file to upload.");
+    if (source === "file" && files.length === 0 && !keepSavedFile) {
+      setError("Choose a .pdf, .txt, .md, or .html file to upload.");
       return;
     }
     if (source === "url" && !url.trim()) {
@@ -151,15 +195,29 @@ export function StepOne() {
       return;
     }
 
+    if (hardcore && !confirmed) {
+      setConfirmOpen(true);
+      return;
+    }
+    setConfirmOpen(false);
+
     setSaving(true);
     setError("");
     try {
       const material = await collectMaterial(source, {
         text,
         url,
-        file,
+        files,
+        keepSavedFile,
         session,
       });
+      const gate = await checkLock(material.text);
+      if (gate.locked) {
+        throw new Error("This material is locked.");
+      }
+      if (gate.active && !hardcore) {
+        throw new Error("Hardcore mode is already running for this material. Leave it on, then save.");
+      }
       saveSession({
         objective: {
           kind,
@@ -169,8 +227,10 @@ export function StepOne() {
         },
         material,
         savedAt: new Date().toISOString(),
+        hardcore,
       });
-      setFile(null);
+      setFiles([]);
+      setKeepSavedFile(false);
       setEditing(false);
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (caught) {
@@ -186,9 +246,9 @@ export function StepOne() {
 
   return (
     <div>
+      <SiteHeader />
       <header className="mb-8">
-        <p className="text-sm font-semibold tracking-wide text-accent">Learn Quick</p>
-        <p className="mt-3 text-sm font-semibold text-muted">Step 1 of 5</p>
+        <p className="text-sm font-semibold text-muted">Step 1 of 5</p>
         <h1 className="mt-1 font-serif text-3xl tracking-tight text-ink sm:text-4xl">
           What should this material help you do?
         </h1>
@@ -197,7 +257,7 @@ export function StepOne() {
         </p>
       </header>
 
-      <ProgressBar activeStep={1} completedThrough={showSaved ? 1 : 0} />
+      <ProgressBar activeStep={1} completedThrough={showSaved ? 1 : 0} stepTwoEnabled={Boolean(session)} />
 
       {!hydrated ? (
         <p className="text-muted">Loading your saved step…</p>
@@ -287,7 +347,7 @@ export function StepOne() {
           <fieldset className="rounded-2xl border border-line bg-card p-4 sm:p-6">
             <legend className="px-1 font-serif text-2xl text-ink">Your material</legend>
             <p className="mt-1 text-sm leading-relaxed text-muted">
-              Paste text, upload a PDF or TXT file, or share a public link.
+              Paste text, upload .txt, .md, .html, or .pdf files, or share a public link.
             </p>
             <div className="mt-4 grid grid-cols-3 gap-1 rounded-xl bg-paper p-1">
               {SOURCES.map((item) => {
@@ -337,30 +397,53 @@ export function StepOne() {
 
             {source === "file" ? (
               <div className="mt-4">
-                <div className="relative rounded-xl border border-dashed border-line bg-paper focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-accent">
+                <label
+                  onDragEnter={(event) => {
+                    event.preventDefault();
+                    setDragOver(true);
+                  }}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    setDragOver(true);
+                  }}
+                  onDragLeave={(event) => {
+                    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+                    setDragOver(false);
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    setDragOver(false);
+                    addFiles(event.dataTransfer.files);
+                  }}
+                  className={`block cursor-pointer rounded-xl border border-dashed bg-paper px-4 py-8 text-center focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-accent ${
+                    dragOver ? "border-accent bg-accent-soft" : "border-line"
+                  }`}
+                >
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept=".pdf,.txt,application/pdf,text/plain"
-                    onChange={(event) => onFileChange(event.target.files?.[0] ?? null)}
-                    className="absolute inset-0 cursor-pointer opacity-0"
-                    aria-label="Choose a PDF or TXT file"
+                    multiple
+                    accept=".pdf,.txt,.md,.markdown,.html,.htm,application/pdf,text/plain,text/html,text/markdown"
+                    onChange={(event) => addFiles(event.target.files ?? [])}
+                    className="sr-only"
+                    aria-label="Choose .txt, .md, .html, or .pdf files"
                   />
-                  <div className="pointer-events-none px-4 py-8 text-center">
-                    <p className="font-semibold text-ink">Choose a PDF or TXT file</p>
-                    <p className="mt-1 text-sm text-muted">Up to 10 MB</p>
-                  </div>
-                </div>
-                {fileName ? (
-                  <p className="mt-3 text-sm text-ink">
-                    Selected: <span className="font-semibold">{fileName}</span>
-                    {!file && session?.material.source === "file" ? (
-                      <span className="text-muted"> · using the text already read from this file</span>
-                    ) : null}
-                  </p>
-                ) : (
-                  <p className="mt-3 text-sm text-muted">No file selected yet.</p>
-                )}
+                  <p className="font-semibold text-ink">Choose .txt, .md, .html, or .pdf files</p>
+                  <p className="mt-1 text-sm text-muted">Or drop them here. Up to 5 files, 10 MB each, 20 MB together.</p>
+                </label>
+                <UploadList
+                  savedName={
+                    keepSavedFile && session?.material.source === "file"
+                      ? session.material.fileName || "Uploaded file"
+                      : ""
+                  }
+                  files={files}
+                  onRemoveSaved={() => {
+                    setKeepSavedFile(false);
+                    setError("");
+                  }}
+                  onRemoveFile={removeFile}
+                />
               </div>
             ) : null}
 
@@ -394,8 +477,9 @@ export function StepOne() {
             <button
               type="submit"
               disabled={saving}
-              className="rounded-xl bg-accent px-5 py-3 font-semibold text-white disabled:opacity-60"
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-accent px-5 py-3 font-semibold text-white disabled:opacity-60"
             >
+              <FloppyIcon />
               {saving ? "Reading your material…" : "Save step 1"}
             </button>
             {session ? (
@@ -417,6 +501,122 @@ export function StepOne() {
           </p>
         </form>
       )}
+      {confirmOpen ? (
+        <div
+          className="hardcore-scrim fixed inset-0 z-50 flex items-center justify-center px-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="hardcore-title"
+        >
+          <div className="w-full max-w-md rounded-2xl bg-card p-6 shadow-sm">
+            <h2 id="hardcore-title" className="font-serif text-2xl text-ink">
+              Hardcore mode
+            </h2>
+            <p className="mt-3 text-base leading-relaxed text-ink">
+              If you don&apos;t pass the application problems before the timer ends, this material is locked
+              forever. Continue?
+            </p>
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+              <button
+                type="button"
+                onClick={() => void save(true)}
+                disabled={saving}
+                className="rounded-xl bg-accent px-5 py-3 font-semibold text-white disabled:opacity-60"
+              >
+                {saving ? "Reading your material…" : "Continue"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmOpen(false)}
+                className="rounded-xl border border-line bg-card px-5 py-3 font-semibold text-ink"
+              >
+                Go back
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+async function checkLock(text: string) {
+  let response: Response;
+  try {
+    response = await fetch("/api/hardcore", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "check", text }),
+    });
+  } catch {
+    throw new Error("We couldn't check whether this material is locked. Make sure the app is running, then try again.");
+  }
+  const payload = (await response.json().catch(() => null)) as { locked?: boolean; active?: boolean; error?: string } | null;
+  if (!response.ok || !payload) {
+    throw new Error(payload?.error || "We couldn't check whether this material is locked. Try again.");
+  }
+  return { locked: payload.locked === true, active: payload.active === true };
+}
+
+function sameFile(left: File, right: File) {
+  return left.name === right.name && left.size === right.size && left.lastModified === right.lastModified;
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function UploadList({
+  savedName,
+  files,
+  onRemoveSaved,
+  onRemoveFile,
+}: {
+  savedName: string;
+  files: File[];
+  onRemoveSaved: () => void;
+  onRemoveFile: (index: number) => void;
+}) {
+  if (!savedName && files.length === 0) {
+    return <p className="mt-3 text-sm text-muted">No files selected yet.</p>;
+  }
+
+  const total = files.reduce((sum, file) => sum + file.size, 0);
+  return (
+    <div className="mt-3">
+      <ul className="flex flex-col gap-2">
+        {savedName ? (
+          <li className="flex items-center justify-between gap-3 rounded-lg border border-line bg-paper px-3 py-2 text-sm">
+            <span className="min-w-0 text-ink">
+              <span className="font-semibold break-all">{savedName}</span>
+              <span className="text-muted"> · already read</span>
+            </span>
+            <button type="button" onClick={onRemoveSaved} className="shrink-0 font-semibold text-accent">
+              Remove
+            </button>
+          </li>
+        ) : null}
+        {files.map((file, index) => (
+          <li
+            key={`${file.name}-${file.size}-${file.lastModified}-${index}`}
+            className="flex items-center justify-between gap-3 rounded-lg border border-line bg-paper px-3 py-2 text-sm"
+          >
+            <span className="min-w-0 text-ink">
+              <span className="font-semibold break-all">{file.name}</span>
+              <span className="text-muted"> · {formatBytes(file.size)}</span>
+            </span>
+            <button type="button" onClick={() => onRemoveFile(index)} className="shrink-0 font-semibold text-accent">
+              Remove
+            </button>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-2 text-sm text-muted">
+        {(savedName ? 1 : 0) + files.length} of {MAX_UPLOAD_FILES} files
+        {files.length > 0 ? ` · ${formatBytes(total)} of ${formatBytes(MAX_UPLOAD_TOTAL_BYTES)}` : ""}
+      </p>
     </div>
   );
 }
@@ -426,7 +626,8 @@ async function collectMaterial(
   input: {
     text: string;
     url: string;
-    file: File | null;
+    files: File[];
+    keepSavedFile: boolean;
     session: LearnSession | null;
   },
 ): Promise<LearnSession["material"]> {
@@ -439,17 +640,28 @@ async function collectMaterial(
   }
 
   if (source === "file") {
-    if (input.file) {
-      const body = new FormData();
-      body.set("kind", "file");
-      body.set("file", input.file);
-      const extracted = await requestMaterial(body);
-      return { source, ...extracted, fileName: input.file.name };
+    const previous =
+      input.keepSavedFile && input.session?.material.source === "file" && input.session.material.text
+        ? input.session.material
+        : null;
+    if (input.files.length === 0) {
+      if (previous) return previous;
+      throw new Error("Choose a .pdf, .txt, .md, or .html file to upload.");
     }
-    if (input.session?.material.source === "file" && input.session.material.text) {
-      return input.session.material;
-    }
-    throw new Error("Choose a PDF or TXT file to upload.");
+    const body = new FormData();
+    body.set("kind", "file");
+    for (const file of input.files) body.append("file", file);
+    const extracted = await requestMaterial(body);
+    if (!previous) return { source, ...extracted, fileName: extracted.fileName || input.files.map((file) => file.name).join(", ") };
+    const combined = limitMaterial(`${previous.text}\n\n${extracted.text}`);
+    const names = [previous.fileName, extracted.fileName].filter(Boolean).join(", ");
+    return {
+      source,
+      ...combined,
+      title: previous.title || extracted.title,
+      fileName: names,
+      url: "",
+    };
   }
 
   const typedUrl = input.url.trim();
@@ -542,6 +754,9 @@ function SavedStep({
         <div>
           <dt className="text-sm font-semibold text-muted">Objective</dt>
           <dd className="mt-1 text-base text-ink">{objectiveTitle(session.objective.kind)}</dd>
+          {session.hardcore ? (
+            <dd className="mt-2 text-sm font-semibold text-warn">Hardcore mode is on for this material.</dd>
+          ) : null}
           {session.objective.kind === "test" && session.objective.testTopic ? (
             <dd className="mt-1 text-sm text-ink">Topic: {session.objective.testTopic}</dd>
           ) : null}
@@ -583,10 +798,13 @@ function SavedStep({
       </dl>
 
       <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+        <Link href="/definitions" className="rounded-xl bg-accent px-5 py-3 text-center font-semibold text-white">
+          Continue to definitions
+        </Link>
         <button
           type="button"
           onClick={onEdit}
-          className="rounded-xl bg-accent px-5 py-3 font-semibold text-white"
+          className="rounded-xl border border-line bg-card px-5 py-3 font-semibold text-ink"
         >
           Edit this step
         </button>
