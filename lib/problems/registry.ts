@@ -1,5 +1,6 @@
 import type { LearningOutcome } from "@/lib/learning-result";
 import type { Problem, ProblemSet } from "@/lib/problems/types";
+import { practiceShape, type PracticeShape, type SampleTest } from "@/lib/sample-test";
 
 export type ProblemModule = {
   outcome: LearningOutcome;
@@ -77,6 +78,73 @@ export const PROBLEM_MODULES: Record<LearningOutcome, ProblemModule> = {
 
 export function problemModule(outcome: LearningOutcome) {
   return PROBLEM_MODULES[outcome];
+}
+
+export function problemInstructions(outcome: LearningOutcome, sample: SampleTest | null, testFormat: string) {
+  if (outcome !== "pass_a_test") return PROBLEM_MODULES[outcome].instructions;
+  const shape = practiceShape(sample);
+  if (!shape) return PROBLEM_MODULES.pass_a_test.instructions;
+  return sampledTestInstructions(shape, testFormat);
+}
+
+export function showableTestSet(set: ProblemSet) {
+  return (
+    set.problems.length > 0 &&
+    set.problems.every((problem) => {
+      if (problem.type === "short_answer") return Boolean(problem.prompt);
+      if (problem.type !== "multiple_choice") return false;
+      return problem.choices.length >= 2 && problem.choices.includes(problem.answer);
+    })
+  );
+}
+
+export function acceptProblems(outcome: LearningOutcome, set: ProblemSet, sample: SampleTest | null) {
+  if (outcome !== "pass_a_test") return PROBLEM_MODULES[outcome].accept(set);
+  const shape = practiceShape(sample);
+  if (!shape) return PROBLEM_MODULES.pass_a_test.accept(set);
+  return acceptSampledTest(set, shape);
+}
+
+function sampledTestInstructions(shape: PracticeShape, testFormat: string) {
+  const counts = [
+    shape.multipleChoice > 0 ? `exactly ${shape.multipleChoice} multiple_choice` : "",
+    shape.shortAnswer > 0 ? `exactly ${shape.shortAnswer} short_answer` : "",
+  ].filter(Boolean);
+  const structure = testFormat.trim();
+  const wording = structure
+    ? `Write each question in this structure: ${structure}\nThat structure describes wording only. It does not change the question counts above.`
+    : shape.wordingNote.trim()
+      ? `Write each question with this wording: ${shape.wordingNote.trim()}`
+      : "Write clear exam questions.";
+  return [
+    "Write an exam-style practice set from the summary.",
+    `Include ${counts.join(" and ")} questions. No other types.`,
+    "Each multiple_choice question has exactly 4 choices, unless the structure says true/false. True/false uses the choices True and False.",
+    "answer is the full text of the correct choice, copied from choices.",
+    `Match this difficulty: ${shape.difficultyNote.trim() || "Match a typical classroom test on this material."}`,
+    wording,
+    "Do not copy questions from a sample test. Write new questions from the summary.",
+    "Skip trivia that is not in the summary.",
+  ].join("\n");
+}
+
+function acceptSampledTest(set: ProblemSet, shape: PracticeShape) {
+  const multiple = set.problems.filter(isSampleMultipleChoice);
+  const written = set.problems.filter((problem) => problem.type === "short_answer" && problem.prompt);
+  return (
+    multiple.length === shape.multipleChoice &&
+    written.length === shape.shortAnswer &&
+    multiple.length + written.length === set.problems.length
+  );
+}
+
+function isSampleMultipleChoice(problem: Problem) {
+  const count = problem.choices.length;
+  return (
+    problem.type === "multiple_choice" &&
+    (count === 2 || count === 4) &&
+    problem.choices.includes(problem.answer)
+  );
 }
 
 function isReadyMultipleChoice(problem: Problem) {

@@ -7,6 +7,7 @@ import { useSession } from "@/components/session-provider";
 import { ensureFamiliarity, useFamiliarity } from "@/lib/familiarity-store";
 import { useHardcoreClock, watchHardcore } from "@/lib/hardcore-clock";
 import { useLearning } from "@/lib/learning-store";
+import { MAX_STUDY_MINUTES } from "@/lib/study-time";
 import { hashMaterial } from "@/lib/material-hash";
 import {
   addTenMinutes,
@@ -304,7 +305,7 @@ function TimerCard() {
           <button
             type="button"
             onClick={() => adjustTimer(5)}
-            disabled={timer.stopped || remaining >= 240 * 60}
+            disabled={timer.stopped || remaining >= MAX_STUDY_MINUTES * 60}
             aria-label="Add 5 minutes"
             className="rounded-lg border border-line bg-card px-2 py-1 text-xs font-semibold text-ink disabled:opacity-40"
           >

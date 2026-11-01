@@ -6,13 +6,14 @@ import { parseDifficulty } from "@/lib/difficulty-result";
 import { noteHardcoreResult } from "@/lib/hardcore-clock";
 import { isHardcoreSnapshot } from "@/lib/hardcore-types";
 import { wordCount } from "@/lib/estimate-result";
-import { calculateStudyTime, explainStudyTime } from "@/lib/study-time";
+import { scaledPracticeCount } from "@/lib/sample-test";
+import { calculateStudyTime, explainStudyTime, MAX_STUDY_MINUTES } from "@/lib/study-time";
 import type { LearnSession } from "@/lib/types";
 
 const STORAGE_KEY = "learn-quick-timer";
 const LOCK_KEY = "learn-quick-estimate-lock";
 const LOCK_MS = 15_000;
-const MAX_SECONDS = 240 * 60;
+const MAX_SECONDS = MAX_STUDY_MINUTES * 60;
 
 export type TimerView = {
   status: "hidden" | "loading" | "error" | "ready";
@@ -116,7 +117,7 @@ function isStoredTimer(value: unknown): value is ReturnType<typeof toStored> {
     item.savedAt.length > 0 &&
     typeof item.estimatedMinutes === "number" &&
     item.estimatedMinutes >= 5 &&
-    item.estimatedMinutes <= 120 &&
+    item.estimatedMinutes <= MAX_STUDY_MINUTES &&
     typeof item.reasoning === "string" &&
     item.reasoning.length > 0 &&
     typeof item.plannedSeconds === "number" &&
@@ -408,6 +409,7 @@ async function fetchEstimate(
     summaryWords: wordCount(summary),
     unfamiliarCount,
     difficulty: difficulty.difficulty,
+    practiceCount: session.objective.kind === "test" ? scaledPracticeCount(session.objective.sampleTest) : 0,
   });
   return {
     estimated_minutes: parts.minutes,

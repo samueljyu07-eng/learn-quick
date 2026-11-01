@@ -6,6 +6,7 @@ import { currentLearner } from "@/lib/learner";
 import { MAX_MATERIAL_CHARS } from "@/lib/limits";
 import { objectiveTitle } from "@/lib/objectives";
 import { wordCount } from "@/lib/estimate-result";
+import { scaledPracticeCount } from "@/lib/sample-test";
 import { calculateStudyTime } from "@/lib/study-time";
 import type { LearnSession, ObjectiveKind } from "@/lib/types";
 
@@ -164,6 +165,7 @@ export async function POST(request: Request) {
     summaryWords: wordCount(summary),
     unfamiliarCount,
     difficulty: difficulty.difficulty,
+    practiceCount: kind === "test" ? scaledPracticeCount(record?.objective?.sampleTest) : 0,
   }).minutes;
   const hardcore = await beginRun({
     learner: await currentLearner(),

@@ -14,7 +14,8 @@ import { noteHardcoreResult, useHardcoreClock } from "@/lib/hardcore-clock";
 import { isHardcoreSnapshot } from "@/lib/hardcore-types";
 import { outcomeFor, type LearningOutcome } from "@/lib/learning-result";
 import { useLearning } from "@/lib/learning-store";
-import { problemModule } from "@/lib/problems/registry";
+import { acceptProblems, problemModule, showableTestSet } from "@/lib/problems/registry";
+import { isSampleTest } from "@/lib/sample-test";
 import { parseProblemSet } from "@/lib/problems/parse";
 import type { Problem, ProblemGrade, ProblemSet } from "@/lib/problems/types";
 import { saveSessionResult } from "@/lib/session-result";
@@ -52,7 +53,11 @@ export function PracticeView() {
   const summary =
     session && learning.status === "ready" && learning.savedAt === session.savedAt ? learning.result?.summary ?? "" : "";
   const outcome = session ? outcomeFor(session.objective.kind) : null;
-  const cacheKey = session && outcome && summary ? `${session.savedAt}|${outcome}|${summary.length}` : "";
+  const sample = session && isSampleTest(session.objective.sampleTest) ? session.objective.sampleTest : null;
+  const cacheKey =
+    session && outcome && summary
+      ? `${session.savedAt}|${outcome}|${summary.length}|${sample?.practiceCount ?? 0}|${sample?.questionCount ?? 0}`
+      : "";
   const set = useProblemSet(cacheKey);
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
@@ -81,7 +86,9 @@ export function PracticeView() {
       .then(async (response) => {
         const payload = (await response.json().catch(() => null)) as { error?: string } | null;
         const parsed = parseProblemSet(payload);
-        if (!response.ok || !parsed || !problemModule(outcome).accept(parsed)) {
+        const matches = parsed ? acceptProblems(outcome, parsed, sample) : false;
+        const frozen = Boolean(session.hardcore && outcome === "pass_a_test" && parsed && showableTestSet(parsed));
+        if (!response.ok || !parsed || (!matches && !frozen)) {
           throw new Error(payload?.error || "Claude's practice problems didn't match this goal. Try again.");
         }
         if (ignore) return;
@@ -97,7 +104,7 @@ export function PracticeView() {
       ignore = true;
       controller.abort();
     };
-  }, [session, cacheKey, summary, outcome, learning.contextExtra, attempt, set]);
+  }, [session, cacheKey, summary, outcome, sample, learning.contextExtra, attempt, set]);
 
   useEffect(() => {
     if (!session?.hardcore || !set || !cacheKey) return;
@@ -136,6 +143,7 @@ export function PracticeView() {
         </h1>
         <p className="mt-3 max-w-2xl text-base leading-relaxed text-muted">
           A score of {STUDY.passingScore} or higher passes. The problems follow the goal you picked in step 1.
+          {sample && sample.practiceCount >= 10 ? ` This set has ${sample.practiceCount} questions, following your sample test.` : ""}
         </p>
         {session?.hardcore ? <HardcorePracticeNote /> : null}
       </header>

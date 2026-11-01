@@ -1,3 +1,4 @@
+import { isSampleTest } from "@/lib/sample-test";
 import { isLearnSession, type LearnSession, type ObjectiveKind } from "@/lib/types";
 
 export const MAX_SAVED_LESSONS = 30;
@@ -93,6 +94,7 @@ function parseObjective(value: unknown): LearnSession["objective"] | null {
     testTopic: cleanLine(item.testTopic, 200),
     testFormat: cleanLine(item.testFormat, 200),
     taskDescription: cleanBlock(item.taskDescription, 2_000),
+    sampleTest: isSampleTest(item.sampleTest) ? item.sampleTest : null,
   };
 }
 

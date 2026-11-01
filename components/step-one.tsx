@@ -8,6 +8,7 @@ import { FloppyIcon } from "@/components/aero-icons";
 import { setHardcoreDraft, useHardcoreDraft } from "@/components/hardcore-theme";
 import { ProgressBar } from "@/components/progress-bar";
 import { SiteHeader } from "@/components/site-header";
+import { SampleTestField, type SampleGate } from "@/components/sample-test-field";
 import { useSession } from "@/components/session-provider";
 import {
   MAX_MATERIAL_CHARS,
@@ -20,6 +21,7 @@ import {
   uploadFileMessage,
 } from "@/lib/limits";
 import { OBJECTIVES, objectiveTitle } from "@/lib/objectives";
+import type { SampleTest } from "@/lib/sample-test";
 import type { ExtractedMaterial, LearnSession, MaterialSource, ObjectiveKind } from "@/lib/types";
 
 const SOURCES: { id: MaterialSource; label: string }[] = [
@@ -43,6 +45,10 @@ export function StepOne() {
   const [objective, setObjective] = useState<ObjectiveKind | null>(null);
   const [testTopic, setTestTopic] = useState("");
   const [testFormat, setTestFormat] = useState("");
+  const [samplePlan, setSamplePlan] = useState<SampleTest | null>(null);
+  const [sampleBusy, setSampleBusy] = useState(false);
+  const [sampleBlocked, setSampleBlocked] = useState(false);
+  const [sampleError, setSampleError] = useState("");
   const [taskDescription, setTaskDescription] = useState("");
   const [hardcore, setHardcore] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -77,6 +83,13 @@ export function StepOne() {
     setConfirmOpen(false);
   }, [hydrated, showSaved, hardcoreDraft]);
 
+  function rememberSample(gate: SampleGate) {
+    setSamplePlan(gate.plan);
+    setSampleBusy(gate.busy);
+    setSampleBlocked(gate.blocked);
+    setSampleError(gate.error);
+  }
+
   function beginEdit() {
     if (!session) return;
     setSource(session.material.source);
@@ -88,6 +101,10 @@ export function StepOne() {
     setObjective(session.objective.kind);
     setTestTopic(session.objective.testTopic);
     setTestFormat(session.objective.testFormat);
+    setSamplePlan(session.objective.sampleTest ?? null);
+    setSampleBusy(false);
+    setSampleBlocked(false);
+    setSampleError("");
     setTaskDescription(session.objective.taskDescription);
     setHardcore(session.hardcore === true);
     setError("");
@@ -104,6 +121,10 @@ export function StepOne() {
     setObjective(null);
     setTestTopic("");
     setTestFormat("");
+    setSamplePlan(null);
+    setSampleBusy(false);
+    setSampleBlocked(false);
+    setSampleError("");
     setTaskDescription("");
     setHardcore(false);
     setConfirmOpen(false);
@@ -182,6 +203,14 @@ export function StepOne() {
       setError("Keep the test topic and format under 200 characters each.");
       return;
     }
+    if (kind === "test" && sampleBusy) {
+      setError("Wait until the sample test has been read.");
+      return;
+    }
+    if (kind === "test" && sampleBlocked) {
+      setError(sampleError || "The sample test didn't read. Remove it, or try again.");
+      return;
+    }
     if (source === "text" && !text.trim()) {
       setError("Paste some text first. An empty box doesn't give Learn Quick anything to work with.");
       return;
@@ -224,6 +253,7 @@ export function StepOne() {
           testTopic: kind === "test" ? testTopic.trim() : "",
           testFormat: kind === "test" ? testFormat.trim() : "",
           taskDescription: kind === "apply" ? taskDescription.trim() : "",
+          sampleTest: kind === "test" ? samplePlan : null,
         },
         material,
         savedAt: new Date().toISOString(),
@@ -307,8 +337,8 @@ export function StepOne() {
               })}
             </div>
 
-            {objective === "test" ? (
-              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <div className={objective === "test" ? "mt-4 grid gap-4 sm:grid-cols-2" : "hidden"}>
+              <div className="flex flex-col gap-4">
                 <label className="block text-sm font-semibold text-ink">
                   Test topic <span className="font-normal text-muted">(if you know it)</span>
                   <input
@@ -323,12 +353,16 @@ export function StepOne() {
                   <input
                     value={testFormat}
                     onChange={(event) => setTestFormat(event.target.value)}
-                    placeholder="Multiple choice, 20 questions"
+                    placeholder="Multiple choice, short written answers"
                     className={fieldClass}
                   />
                 </label>
               </div>
-            ) : null}
+              <SampleTestField
+                initial={session?.objective.kind === "test" ? session.objective.sampleTest ?? null : null}
+                onGate={rememberSample}
+              />
+            </div>
 
             {objective === "apply" ? (
               <label className="mt-4 block text-sm font-semibold text-ink">
@@ -476,11 +510,11 @@ export function StepOne() {
           <div className="flex flex-col gap-3 sm:flex-row">
             <button
               type="submit"
-              disabled={saving}
+              disabled={saving || sampleBusy}
               className="inline-flex items-center justify-center gap-2 rounded-xl bg-accent px-5 py-3 font-semibold text-white disabled:opacity-60"
             >
               <FloppyIcon />
-              {saving ? "Reading your material…" : "Save step 1"}
+              {sampleBusy ? "Reading the sample test…" : saving ? "Reading your material…" : "Save step 1"}
             </button>
             {session ? (
               <button
@@ -762,6 +796,17 @@ function SavedStep({
           ) : null}
           {session.objective.kind === "test" && session.objective.testFormat ? (
             <dd className="mt-1 text-sm text-ink">Format: {session.objective.testFormat}</dd>
+          ) : null}
+          {session.objective.kind === "test" && session.objective.sampleTest ? (
+            <dd className="mt-1 text-sm text-ink">
+              Sample test
+              {session.objective.sampleTest.fileNames.length > 0
+                ? `: ${session.objective.sampleTest.fileNames.join(", ")}`
+                : ""}
+              {session.objective.sampleTest.practiceCount >= 10
+                ? ` · ${session.objective.sampleTest.practiceCount} practice questions`
+                : " · usual practice set"}
+            </dd>
           ) : null}
           {session.objective.kind === "apply" ? (
             <dd className="mt-2 rounded-lg bg-paper px-3 py-2 text-sm leading-relaxed text-ink">

@@ -1,3 +1,5 @@
+import { isSampleTest, type SampleTest } from "@/lib/sample-test";
+
 export type ObjectiveKind = "test" | "skill" | "understand" | "apply";
 
 export type MaterialSource = "text" | "file" | "url";
@@ -17,6 +19,7 @@ export type LearnSession = {
     testTopic: string;
     testFormat: string;
     taskDescription: string;
+    sampleTest?: SampleTest | null;
   };
   material: ExtractedMaterial & {
     source: MaterialSource;
@@ -36,6 +39,7 @@ export function isLearnSession(value: unknown): value is LearnSession {
     typeof session.objective?.testTopic === "string" &&
     typeof session.objective?.testFormat === "string" &&
     typeof session.objective?.taskDescription === "string" &&
+    (session.objective?.sampleTest == null || isSampleTest(session.objective.sampleTest)) &&
     MATERIAL_SOURCES.includes(session.material?.source) &&
     typeof session.material?.text === "string" &&
     session.material.text.trim().length > 0 &&

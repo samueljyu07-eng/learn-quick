@@ -5,8 +5,9 @@ import { currentLearner } from "@/lib/learner";
 import { buildContext, outcomeFor } from "@/lib/learning-result";
 import { MAX_MATERIAL_CHARS } from "@/lib/limits";
 import { parseProblemSet } from "@/lib/problems/parse";
-import { problemModule } from "@/lib/problems/registry";
+import { acceptProblems, problemInstructions } from "@/lib/problems/registry";
 import type { ProblemSet } from "@/lib/problems/types";
+import { isSampleTest, practiceShape } from "@/lib/sample-test";
 import type { LearnSession, ObjectiveKind } from "@/lib/types";
 
 const MODEL = "claude-sonnet-5-5";
@@ -79,7 +80,8 @@ export async function POST(request: Request) {
     taskDescription: text(record?.objective?.taskDescription).slice(0, 2_000),
   };
   const outcome = outcomeFor(kind);
-  const plan = problemModule(outcome);
+  const sample = kind === "test" && isSampleTest(record?.objective?.sampleTest) ? record.objective.sampleTest : null;
+  const shape = practiceShape(sample);
   const hardcoreText = typeof record?.hardcoreText === "string" ? record.hardcoreText.slice(0, MAX_MATERIAL_CHARS) : "";
   if (hardcoreText.trim()) {
     const existing = await storedProblems(await currentLearner(), hardcoreText);
@@ -90,12 +92,15 @@ export async function POST(request: Request) {
     "Use only the summary and context below. Do not add outside facts.",
     "Unused text fields must be empty strings. Unused choice lists must be empty arrays.",
     "",
-    plan.instructions,
+    problemInstructions(outcome, sample, objective.testFormat),
     "",
     `OUTCOME: ${outcome}`,
     "",
     "CONTEXT:",
     buildContext(objective, text(record?.contextExtra).slice(0, 2_000)) || "(none)",
+    shape
+      ? `QUESTION COUNT: exactly ${shape.multipleChoice} multiple_choice and exactly ${shape.shortAnswer} short_answer. This count wins over CONTEXT.`
+      : "",
     "",
     "SUMMARY:",
     summary,
@@ -103,10 +108,10 @@ export async function POST(request: Request) {
 
   let set: ProblemSet | null = null;
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const asked = await askClaude(apiKey, prompt);
+    const asked = await askClaude(apiKey, prompt, problemTokenLimit(sample));
     if (!asked.ok) return NextResponse.json({ error: asked.error }, { status: asked.status });
     const parsed = parseProblemSet(asked.value);
-    if (parsed && plan.accept(parsed)) {
+    if (parsed && acceptProblems(outcome, parsed, sample)) {
       set = parsed;
       break;
     }
@@ -124,13 +129,19 @@ export async function POST(request: Request) {
   return NextResponse.json(official);
 }
 
-async function askClaude(apiKey: string, prompt: string) {
+function problemTokenLimit(sample: LearnSession["objective"]["sampleTest"]) {
+  const shape = practiceShape(isSampleTest(sample) ? sample : null);
+  if (!shape) return 4_000;
+  return Math.min(32_000, 1_200 + shape.total * 280);
+}
+
+async function askClaude(apiKey: string, prompt: string, maxTokens: number) {
   let response: Response;
   try {
     response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       cache: "no-store",
-      signal: AbortSignal.timeout(60_000),
+      signal: AbortSignal.timeout(maxTokens > 4_000 ? 120_000 : 60_000),
       headers: {
         "content-type": "application/json",
         "x-api-key": apiKey,
@@ -138,7 +149,7 @@ async function askClaude(apiKey: string, prompt: string) {
       },
       body: JSON.stringify({
         model: MODEL,
-        max_tokens: 4_000,
+        max_tokens: maxTokens,
         messages: [{ role: "user", content: prompt }],
         output_config: { format: { type: "json_schema", schema: SCHEMA } },
       }),
